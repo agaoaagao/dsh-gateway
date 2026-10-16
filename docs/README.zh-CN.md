@@ -46,11 +46,29 @@ dsh 的 Web GUI 是一个单用户应用。它的会话存储位于 `$DSH_HOME/s
 
 ### Docker
 
+官方镜像发布在 GHCR。用 `docker compose`：先把
+[`.env.example`](../.env.example) 复制为 [`docker-compose.yml`](../docker-compose.yml)
+旁边的 `.env` 并编辑：
+
 ```sh
 DSH_GATEWAY_ADMIN_PASSWORD='choose-something' \
 DSH_GATEWAY_TRUSTED_HOSTS=192.168.100.1 \
-docker compose up -d --build
+docker compose up -d
 ```
+
+或者用裸 `docker run`：
+
+```sh
+docker run -d --name dsh-gateway -p 8080:8080 \
+  -v dsh-gateway-data:/srv \
+  -e DSH_GATEWAY_ADMIN_PASSWORD='choose-something' \
+  -e DSH_GATEWAY_TRUSTED_HOSTS=192.168.100.1 \
+  --restart unless-stopped \
+  ghcr.io/agaoaagao/dsh-gateway:latest
+```
+
+想从源码构建镜像，克隆本仓库后执行 `docker compose up -d --build`（或
+`docker build -t dsh-gateway .`）。
 
 打开 `http://<docker-host>:8080/`，以 `admin` 登录。
 

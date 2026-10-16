@@ -18,21 +18,32 @@ directly: two different logins on one process listed the same 43 sessions.
 
 That is not something a plugin can fix, because the store belongs to the process.
 No amount of authentication changes which data exists behind it. A plugin that
-adds a QR-code pairing gate, for example, answers *who may enter* �?while every
+adds a QR-code pairing gate, for example, answers *who may enter* — while every
 paired phone still sees the same sessions.
 
 So isolation has to be structural: **one dsh process per account, each with its own
 `DSH_HOME`**. This gateway is the front door that makes that invisible.
 
 ```text
-              ┌─────────────────────────────────────────────�?  browser ──�?�? gateway :8080                              �?  (LAN/phone) �? · sign-in page, sessions, admin console     �?              �? · one dsh process per account, lazily       �?              └───────┬───────────────┬─────────────────────�?                      �?              �?              ┌───────▼──────�?┌──────▼───────�?              �?dsh (alice)  �?�?dsh  (bob)   �?  ...up to --max-instances
-              �?:ephemeral   �?�?:ephemeral   �?              �?DSH_HOME=    �?�?DSH_HOME=    �?              �? .../alice   �?�? .../bob     �?              └──────────────�?└──────────────�?```
+              ┌─────────────────────────────────────────────┐
+  browser ──▶ │  gateway :8080                              │
+  (LAN/phone) │  · sign-in page, sessions, admin console     │
+              │  · one dsh process per account, lazily       │
+              └───────┬───────────────┬─────────────────────┘
+                      │               │
+              ┌───────▼──────┐ ┌──────▼───────┐
+              │ dsh (alice)  │ │ dsh  (bob)   │   ...up to --max-instances
+              │ :ephemeral   │ │ :ephemeral   │
+              │ DSH_HOME=    │ │ DSH_HOME=    │
+              │  .../alice   │ │  .../bob     │
+              └──────────────┘ └──────────────┘
+```
 
-By default a per-user home starts *empty* �?dsh materialises its own shipped
+By default a per-user home starts *empty* — dsh materialises its own shipped
 profile inside it, so it can only ever contain what that account installs or
 saves. If you do pass `--template`, installation trees in it are linked (a
 junction on Windows, a symlink elsewhere) because they hold no user data, while
-`profiles/` is a **real copy** per user �?dsh saves the provider and model a user
+`profiles/` is a **real copy** per user — dsh saves the provider and model a user
 picks into `profiles/<name>/cordis.patch.yml` *inside `DSH_HOME`*, so sharing that
 directory would make one user's settings the default for everyone. `sessions/`,
 `storages/`, `logs/`, `attachments/` and `.credentials.yaml` are deliberately
@@ -43,11 +54,29 @@ isolation.
 
 ### Docker
 
+The published image lives on GHCR. With `docker compose` — copy
+[`.env.example`](.env.example) to `.env` next to
+[`docker-compose.yml`](docker-compose.yml) and edit it first:
+
 ```sh
 DSH_GATEWAY_ADMIN_PASSWORD='choose-something' \
 DSH_GATEWAY_TRUSTED_HOSTS=192.168.100.1 \
-docker compose up -d --build
+docker compose up -d
 ```
+
+Or with plain `docker run`:
+
+```sh
+docker run -d --name dsh-gateway -p 8080:8080 \
+  -v dsh-gateway-data:/srv \
+  -e DSH_GATEWAY_ADMIN_PASSWORD='choose-something' \
+  -e DSH_GATEWAY_TRUSTED_HOSTS=192.168.100.1 \
+  --restart unless-stopped \
+  ghcr.io/agaoaagao/dsh-gateway:latest
+```
+
+To build the image from source instead, clone this repository and run
+`docker compose up -d --build` (or `docker build -t dsh-gateway .`).
 
 Open `http://<docker-host>:8080/` and sign in as `admin`.
 
@@ -65,20 +94,20 @@ node gateway.mjs --spawn \
   --state /srv/gateway/state.json
 ```
 
-No dependencies, no build step �?everything is Node's standard library.
+No dependencies, no build step — everything is Node's standard library.
 
 ### Every account starts clean, automatically
 
 Nothing to build: leave `--template` off and a new account's home is an empty
 directory. dsh materialises the profile *it* ships inside it the first time that
-account starts �?the two bundles `@deepseek-ai/dsh-base` and
+account starts — the two bundles `@deepseek-ai/dsh-base` and
 `@deepseek-ai/dsh-web-app`, an empty `cordis.patch.yml`, four files and no
 `node_modules`, because dsh resolves those bundles from its own installation.
 
 That account then has dsh's plugin manager (`plugin-manager`,
 `ui-settings-plugins`, `ui-settings-plugin-inventory`), so the user installs
 whatever they want from the interface, into their own `profiles/` copy. Existing
-accounts are never re-seeded �?rename or delete a home only to have it rebuilt.
+accounts are never re-seeded — rename or delete a home only to have it rebuilt.
 
 `--template` exists only for the case where every account *should* start with the
 same pre-installed set. Point it at your own `~/.dsh` and every account inherits
@@ -90,14 +119,14 @@ exactly what one account must not see from another.
 The same command line works on Windows. One difference matters when you *do* pass
 `--template`: seeding a user home copies it, and a pnpm-style
 `profiles\*\node_modules` is made almost entirely of junctions. Those are
-reproduced as junctions �?never dereferenced (see [docs/DESIGN.md](docs/DESIGN.md));
+reproduced as junctions — never dereferenced (see [docs/DESIGN.md](docs/DESIGN.md));
 dereferencing one is what produced `EPERM: operation not permitted, copyfile`.
 
-One way to run it at logon without a service manager �?put your data under
-`%USERPROFILE%\dsh-gateway-data` and start it from a hidden script:
+One way to run it at logon without a service manager — keep your data under
+`%USERPROFILE%\dsh-gateway-data` and launch the script hidden:
 
 ```powershell
-# start-gateway.ps1 �?the launch line, with your own paths
+# start-gateway.ps1 — the launch line, with your own paths
 node gateway.mjs --spawn --listen 8080 --bind 0.0.0.0 `
   --state     "$env:USERPROFILE\dsh-gateway-data\gateway-state.json" `
   --accounts  "$env:USERPROFILE\dsh-gateway-data\accounts.json" `
@@ -108,7 +137,7 @@ node gateway.mjs --spawn --listen 8080 --bind 0.0.0.0 `
 ```
 
 Launch it hidden at logon with a one-line `.vbs` in your Startup folder
-(`Register-ScheduledTask` instead needs elevation and returns `Access is
+(`Register-ScheduledTask` instead needs elevation and answers `Access is
 denied.` on a non-admin account):
 
 ```vbscript
@@ -119,20 +148,20 @@ CreateObject("Wscript.Shell").Run "powershell -WindowStyle Hidden -File """ & _
 ```
 
 ```powershell
-# status �?one listener plus a 200 means it is up
+# status — one listener plus a 200 means it is up
 (Get-NetTCPConnection -LocalPort 8080 -State Listen).Count
 (Invoke-WebRequest http://127.0.0.1:8080/healthz -UseBasicParsing).StatusCode
 
-# stop �?the gateway and every dsh it spawned (their --patch path carries it too)
+# stop — the gateway and every dsh it spawned (their --patch path carries it too)
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
   Where-Object { $_.CommandLine -like '*dsh-gateway\gateway.mjs*' -or $_.CommandLine -like '*dsh-gateway-data*' } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 ```
 
 The window is hidden, so `<data dir>\gateway.log` (rotated to
-`gateway.log.1` past 5 MB) is where a failed start says why. A looping
-`start-gateway.ps1` is also the
-supervisor: there is no service manager here, so it loops �?`node` runs with its
+`gateway.log.1` past 5 MB) is where a failed start says why. Make the script a
+supervisor as well: there is no service manager here, so let it loop — `node`
+runs with its
 streams in `gateway.out.log` / `gateway.err.log`, an exit appends
 `--- gateway exited code N after Xs` to `gateway.log`, and the next start folds the
 previous run's streams into it before they are truncated. A crash is therefore always
@@ -175,7 +204,7 @@ throttled per client address and per user name.
 | `--listen <port>` | `8080` | port to serve on |
 | `--bind <address>` | `0.0.0.0` | interface to bind |
 | `--spawn` | off | one dsh process per user (the product) |
-| `--target <url>` `--token <t>` | �?| relay to one already-running dsh (prototype mode) |
+| `--target <url>` `--token <t>` | — | relay to one already-running dsh (prototype mode) |
 | `--state <file>` | `./gateway-state.json` | gateway sessions |
 | `--accounts <file>` | next to `--state` | account database |
 | `--admin-password <pw>` | `admin12345` | initial administrator password |
@@ -185,11 +214,11 @@ throttled per client address and per user name.
 | `--template <dir>` | none | optional DSH_HOME seeding each new account; omit it and dsh ships the profile (see *Every account starts clean*) |
 | `--home-root <dir>` | next to `--state` | where per-user homes live |
 | `--dsh-bin <path>` | `dsh` | executable to spawn |
-| `--dsh-arg <arg>` | �?| argument before dsh's own flags (repeatable) |
+| `--dsh-arg <arg>` | — | argument before dsh's own flags (repeatable) |
 | `--max-instances <n>` | `8` | hard cap on concurrent dsh processes |
 | `--idle-minutes <n>` | `30` | stop an idle user's dsh |
-| `--trusted-host <host>` | �?| extra authority dsh should accept (repeatable) |
-| `--public-asset <path>` | �?| extra unauthenticated path to relay (repeatable) |
+| `--trusted-host <host>` | — | extra authority dsh should accept (repeatable) |
+| `--public-asset <path>` | — | extra unauthenticated path to relay (repeatable) |
 
 The gateway enumerates this machine's own addresses and passes them to every dsh
 it starts, so plain LAN and phone access works without hand-written
@@ -218,7 +247,7 @@ Anything after the image name is passed straight to the gateway, so no flag is
 out of reach:
 
 ```sh
-docker run �?dsh-gateway --max-instances 3 --idle-minutes 5
+docker run … dsh-gateway --max-instances 3 --idle-minutes 5
 ```
 
 ## How a request flows
@@ -250,7 +279,7 @@ docker run �?dsh-gateway --max-instances 3 --idle-minutes 5
   model a user picks into `profiles/<name>/cordis.patch.yml` *inside `DSH_HOME`*,
   so each user gets their own real copy of the profile tree, not a link to the
   template. Sharing it silently made one user's saved provider the default for
-  everyone �?measured with two real accounts before this became a copy.
+  everyone — measured with two real accounts before this became a copy.
 - **Each account needs its own model API key**, because each account is a
   separate dsh with a separate credential store. dsh's own settings pages cannot
   load over a non-loopback origin (it grades page-host persistence to `memory`
@@ -259,7 +288,7 @@ docker run �?dsh-gateway --max-instances 3 --idle-minutes 5
   switch instead: the gateway writes the provider, the key reference and the
   default model into that user's own dsh over its loopback connection, where dsh
   validates them. Where a route's profile lives is dsh's answer, not the
-  gateway's �?it writes `apiKeyEnv` at the `settingsNs`/`settingsPath` that
+  gateway's — it writes `apiKeyEnv` at the `settingsNs`/`settingsPath` that
   `llm/listConfigurableProviders` reports for that route, so
   `deepseek-official` (whole section is the profile) and a pi-ai route
   (`settingsPath: ['providers', <route>]`) each land where they resolve from.
@@ -282,7 +311,7 @@ docker run �?dsh-gateway --max-instances 3 --idle-minutes 5
 - **Plugins installed by a user stay that user's own.** `dsh plugin add` and the
   plugin manager write into `profiles/`, which is a real per-user copy; only the
   installation trees (`node_modules`, `dsh-runtimes`) are symlinked and shared.
-  A new account therefore starts with the shipped profile only �?and with the
+  A new account therefore starts with the shipped profile only — and with the
   plugin manager, so it can install what it wants.
 - **Reverse proxies and extra hostnames work with no configuration.** dsh's
   browser-trust fence accepts only loopback plus authorities it was told about at
@@ -321,5 +350,5 @@ only as scrypt digests, accounts survive a gateway restart, and repeated
 guessing is locked out per client.
 
 [docs/DESIGN.md](docs/DESIGN.md) records the investigation these decisions rest
-on �?in particular why a plugin cannot isolate users, and why the LAN trust
+on — in particular why a plugin cannot isolate users, and why the LAN trust
 fence behaves the way it does.

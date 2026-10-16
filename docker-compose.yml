@@ -2,10 +2,13 @@
 #
 #   DSH_GATEWAY_ADMIN_PASSWORD='...' \
 #   DSH_GATEWAY_TRUSTED_HOSTS=192.168.100.1 \
-#   docker compose up -d --build
+#   docker compose up -d
 #
 # Then open http://<docker-host>:8080/ and sign in. Each account that signs in
 # gets its own dsh process and its own home under the `data` volume.
+#
+# This file pulls the published image from GHCR. To build locally instead
+# (say, after editing the source), run: docker compose up -d --build
 
 services:
   dsh-gateway:
@@ -13,7 +16,7 @@ services:
       context: .
       args:
         DSH_VERSION: ${DSH_VERSION:-0.2.0-rc.2}
-    image: dsh-gateway:${DSH_VERSION:-0.2.0-rc.2}
+    image: ghcr.io/agaoaagao/dsh-gateway:${DSH_GATEWAY_IMAGE_TAG:-latest}
     container_name: dsh-gateway
     restart: unless-stopped
 

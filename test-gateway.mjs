@@ -2,8 +2,8 @@
  * Deterministic harness for the gateway's session-durability claims.
  *
  * A real dsh cannot be told "your cookie is now stale", so the failure the
- * user hit �?a credential that silently expires and strands the phone on a
- * broken page �?is reproduced with a fake upstream that does exactly that:
+ * user hit — a credential that silently expires and strands the phone on a
+ * broken page — is reproduced with a fake upstream that does exactly that:
  * it keys its cookie by Host (like dsh), and it can retire a generation on
  * command, turning every previously issued cookie into a 401.
  *
@@ -215,7 +215,7 @@ function check(label, condition, detail = '') {
     console.log(`  PASS  ${label}`)
   } else {
     failures += 1
-    console.log(`  FAIL  ${label}${detail ? ` �?${detail}` : ''}`)
+    console.log(`  FAIL  ${label}${detail ? ` — ${detail}` : ''}`)
   }
 }
 
@@ -613,7 +613,7 @@ async function main() {
   check('the form shows the model dsh currently defaults to',
     form.body.includes('value="deepseek-flash"'), 'current model missing')
   check('the form says the key is not stored yet',
-    form.body.includes('粘贴服务�?API Key'), 'initial key state missing')
+    form.body.includes('粘贴服务商 API Key'), 'initial key state missing')
 
   const saved1 = await call({
     port: GATEWAY_PORT,
@@ -631,7 +631,8 @@ async function main() {
     JSON.stringify(saved.credentials))
   // The regression: `deepseek-official` keeps its profile at the ROOT of
   // `llm-deepseek` (`settingsPath: []`). Naming the reference under
-  // `llm-pi-ai.providers.<route>` �?which an earlier build did for every route �?  // leaves the route resolving `DEEPSEEK_API_KEY`, and the user sees
+  // `llm-pi-ai.providers.<route>` — which an earlier build did for every route —
+  // leaves the route resolving `DEEPSEEK_API_KEY`, and the user sees
   // `no API key for provider route "deepseek-official"` with the key stored.
   check('the key reference is written to the namespace dsh names for that route',
     saved.settings.some(entry => entry.ns === 'llm-deepseek' &&
@@ -650,7 +651,7 @@ async function main() {
   check('the key itself is never echoed back into the page',
     !saved1.body.includes('sk-test-123'), 'the secret came back in a response body')
   check('the form now reports the key as stored',
-    saved1.body.includes('已配置（DEEPSEEK_OFFICIAL_API_KEY�?),
+    saved1.body.includes('已配置（DEEPSEEK_OFFICIAL_API_KEY）'),
     'stored state not reflected after saving')
 
   // A pi-ai route keeps its profile in a subtree, so its reference belongs
@@ -696,7 +697,7 @@ async function main() {
 
   const orphaned = await call({ port: GATEWAY_PORT, path: '/__gateway/settings', jar: formJar })
   check('the page reports the stored key even while the route ignores it',
-    orphaned.body.includes('已配置（DEEPSEEK_OFFICIAL_API_KEY�?),
+    orphaned.body.includes('已配置（DEEPSEEK_OFFICIAL_API_KEY）'),
     'orphaned key not reported')
 
   const adopted = await call({
@@ -712,7 +713,7 @@ async function main() {
       sections['llm-deepseek'].value.apiKeyEnv === 'DEEPSEEK_OFFICIAL_API_KEY',
     `status ${String(adopted.status)} apiKeyEnv=${String(sections['llm-deepseek'].value.apiKeyEnv)}`)
   check('adopting is reported, not silently folded into the model write',
-    adopted.body.includes('已保存并注入：API Key 引用、默认模型�?),
+    adopted.body.includes('已保存并注入：API Key 引用、默认模型。'),
     'the notice did not name the reference change')
   check('adopting an existing key stores nothing new',
     saved.credentials.DEEPSEEK_OFFICIAL_API_KEY === undefined,
@@ -751,8 +752,8 @@ async function main() {
     'the button is missing from the form')
 
   // --- An upstream that dies mid-body must not take the gateway with it --------
-  // Restarting an account's dsh �?a host grant, a credential re-mint, the idle
-  // reaper �?resets every response still streaming out of the old process. An
+  // Restarting an account's dsh — a host grant, a credential re-mint, the idle
+  // reaper — resets every response still streaming out of the old process. An
   // unhandled 'error' on that IncomingMessage ended the whole gateway, which is
   // how the local service kept vanishing with nothing in its log.
   await call({ port: GATEWAY_PORT, path: '/reset', jar: shellJar }).catch(() => undefined)
