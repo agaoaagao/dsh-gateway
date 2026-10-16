@@ -100,14 +100,10 @@ No dependencies, no build step — everything is Node's standard library.
 
 Nothing to build: leave `--template` off and a new account's home is an empty
 directory. dsh materialises the profile *it* ships inside it the first time that
-account starts — the two bundles `@deepseek-ai/dsh-base` and
-`@deepseek-ai/dsh-web-app`, an empty `cordis.patch.yml`, four files and no
-`node_modules`, because dsh resolves those bundles from its own installation.
-
-That account then has dsh's plugin manager (`plugin-manager`,
-`ui-settings-plugins`, `ui-settings-plugin-inventory`), so the user installs
-whatever they want from the interface, into their own `profiles/` copy. Existing
-accounts are never re-seeded — rename or delete a home only to have it rebuilt.
+account starts, and that account gets dsh's own plugin manager, so the user
+installs whatever they want from the interface — into their own profile copy.
+Existing accounts are never re-seeded — rename or delete a home only to have it
+rebuilt.
 
 `--template` exists only for the case where every account *should* start with the
 same pre-installed set. Point it at your own `~/.dsh` and every account inherits
@@ -117,10 +113,9 @@ exactly what one account must not see from another.
 ### On Windows, without a service manager
 
 The same command line works on Windows. One difference matters when you *do* pass
-`--template`: seeding a user home copies it, and a pnpm-style
-`profiles\*\node_modules` is made almost entirely of junctions. Those are
-reproduced as junctions — never dereferenced (see [docs/DESIGN.md](docs/DESIGN.md));
-dereferencing one is what produced `EPERM: operation not permitted, copyfile`.
+`--template`: the seeded profile tree contains junctions/symlinks, and the gateway
+reproduces them as links rather than dereferencing them into full copies (see
+[docs/DESIGN.md](docs/DESIGN.md)).
 
 One way to run it at logon without a service manager — keep your data under
 `%USERPROFILE%\dsh-gateway-data` and launch the script hidden:
@@ -169,11 +164,10 @@ on record twice: once from the gateway's own `uncaughtException` handler, once f
 supervisor's restart line.
 
 Each account costs only what it stores: with no `--template` the home is empty
-and dsh bootstraps a four-file profile, so a fresh account is kilobytes. Budget
-about 365 MB per account **only if your template carries a populated
-`profiles/*/node_modules`** (a template seeded from a machine that had plugins
-installed). The top-level `profiles\node_modules` is free either way because it is
-399 links, and the junctions inside a profile are reproduced rather than copied.
+and dsh bootstraps a minimal profile, so a fresh account is kilobytes. Budget
+real space per account only if your template carries a populated
+`profiles/*/node_modules` (a template seeded from a machine with plugins
+installed).
 
 ## Accounts and the admin console
 
@@ -258,8 +252,8 @@ docker run … dsh-gateway --max-instances 3 --idle-minutes 5
 2. The gateway resolves that session to an account, lazily starting that
    account's dsh if it is not running, and reads the launch token from the dsh
    startup banner.
-3. It mints dsh's own `dsh-auth-*` cookie once, server-side, and relays it as an
-   opaque `__dsh_relay` handle. **A dsh credential never reaches the browser.**
+3. It mints dsh's own session credential once, server-side, and relays it as an
+   opaque handle. **A dsh credential never reaches the browser.**
 4. Every later request is a plain relay with `Host` preserved, so dsh emits URLs
    the browser can actually reach.
 5. If dsh ever rejects the cached credential, the gateway re-mints and retries
@@ -278,35 +272,25 @@ docker run … dsh-gateway --max-instances 3 --idle-minutes 5
 - **Each account's model settings are private.** dsh saves the provider and
   model a user picks into `profiles/<name>/cordis.patch.yml` *inside `DSH_HOME`*,
   so each user gets their own real copy of the profile tree, not a link to the
-  template. Sharing it silently made one user's saved provider the default for
-  everyone — measured with two real accounts before this became a copy.
+  template. Sharing the profile tree would make one user's saved provider the
+  default for everyone.
 - **Each account needs its own model API key**, because each account is a
   separate dsh with a separate credential store. dsh's own settings pages cannot
-  load over a non-loopback origin (it grades page-host persistence to `memory`
-  when `location.hostname` is not loopback, which is why the LAN page reports
-  `settings are unavailable in this browser`). Sign in with the **配置模型**
-  switch instead: the gateway writes the provider, the key reference and the
-  default model into that user's own dsh over its loopback connection, where dsh
-  validates them. Where a route's profile lives is dsh's answer, not the
-  gateway's — it writes `apiKeyEnv` at the `settingsNs`/`settingsPath` that
-  `llm/listConfigurableProviders` reports for that route, so
-  `deepseek-official` (whole section is the profile) and a pi-ai route
-  (`settingsPath: ['providers', <route>]`) each land where they resolve from.
-  Leaving the key field blank keeps the stored key and only re-points the route
-  at it, which is also how a key saved before that path was fixed starts working.
-  The **获取模型** button next to the model field asks that user's dsh for the
-  route's models (`llm/discoverModels`, the same remote call dsh's own page
-  makes), so a model id never has to be typed from memory; a route whose adapter
-  registers no discovery still answers from the catalogue dsh already holds for
-  it (`deepseek-official` reports `deepseek-flash` / `deepseek-v4-pro`).
-  See [docs/DESIGN.md](docs/DESIGN.md).
+  load over a non-loopback origin, which is why the LAN page reports
+  `settings are unavailable in this browser`. Sign in with the **配置模型**
+  switch instead: the gateway writes the provider, the key and the default model
+  into that user's own dsh over its loopback connection, where dsh validates
+  them. Leaving the key field blank keeps the stored key and only re-points the
+  route at it. The **获取模型** button next to the model field asks that user's
+  dsh for the route's model list, so a model id never has to be typed from
+  memory. See [docs/DESIGN.md](docs/DESIGN.md).
 - **The sign-in cookie is named after the authority the browser used.** Cookies
   ignore the port, so two gateways sharing one hostname (`home.example.com:2020`
   on a router, `:2021` on a workstation) would otherwise overwrite each other's
   sign-in and every request would answer `{"error":"unauthenticated"}`. Each
   authority gets `dsh-gateway-session-<hash>` instead, so the two never collide;
   reaching one instance by a second name asks for a second sign-in, which is the
-  same semantics dsh's own `dsh-auth-*` cookie has. See
+  same semantics dsh's own session cookie has. See
   [docs/DESIGN.md](docs/DESIGN.md).
 - **Plugins installed by a user stay that user's own.** `dsh plugin add` and the
   plugin manager write into `profiles/`, which is a real per-user copy; only the

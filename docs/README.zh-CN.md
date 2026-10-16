@@ -89,14 +89,10 @@ node gateway.mjs --spawn \
 
 ### 每个账号自动从干净状态开始
 
-无需构建：不传 `--template`，新账号的家目录就是一个空目录。dsh 首次启动时把
-*它*自带的 profile 落地进去——两个 bundle `@deepseek-ai/dsh-base` 和
-`@deepseek-ai/dsh-web-app`、一个空的 `cordis.patch.yml`、四个文件、没有
-`node_modules`，因为 dsh 从自己的安装目录解析这两个 bundle。
-
-于是该账号有了 dsh 的插件管理器（`plugin-manager`、`ui-settings-plugins`、
-`ui-settings-plugin-inventory`），用户可以在界面里把想要的东西装进自己那份
-`profiles/` 拷贝。已有账号永远不会被重新播种——把家目录改名或删掉才会重建。
+无需构建：不传 `--template`，新账号的家目录就是一个空目录。dsh 首次启动时会把
+*它*自带的 profile 落地进去，该账号随之获得 dsh 自带的插件管理器，用户可以在
+界面里把想要的东西装进自己那份 `profiles/` 拷贝。已有账号永远不会被重新播种
+——把家目录改名或删掉才会重建。
 
 `--template` 只用于"所有账号都*应该*以同一套预装内容开始"的场景。把它指向你
 自己的 `~/.dsh`，每个账号就继承你的插件、你的市场数据库和你保存的模型设置——
@@ -105,9 +101,8 @@ node gateway.mjs --spawn \
 ### Windows 上，不用服务管理器
 
 同样的命令行在 Windows 上可用。只有一个区别需要注意：传 `--template` 时，播种
-家目录是拷贝操作，pnpm 风格的 `profiles\*\node_modules` 几乎全由 junction 组
-成，必须按 junction 复现、绝不能解引用（解引用正是 `EPERM: operation not
-permitted, copyfile` 的成因）。
+的 profile 树里包含 junction/符号链接，网关会把它们按链接复现，而不是解引用
+成完整拷贝（见 [DESIGN.md](DESIGN.md)）。
 
 开机自启动的一种做法：把启动命令写进
 `启动` 文件夹里的一个 `.vbs`（用 `wscript.exe` 隐藏窗口执行），由一个循环脚
@@ -115,10 +110,8 @@ permitted, copyfile` 的成因）。
 己的 `uncaughtException` 处理器一份，监督进程的重启行一份。
 
 每个账号的成本只是它存储的东西：不带 `--template` 时家目录为空，dsh 引导出一
-个四文件 profile，新账号只有几 KB。**只有当模板带着装满插件的
-`profiles/*/node_modules` 时**才按每账号约 365 MB 预算。顶层
-`profiles\node_modules` 无论哪种情况都免费，因为它是 399 个链接，profile 内部
-的 junction 是复现而非复制。
+个很小的 profile，新账号只有几 KB。只有当模板带着装满插件的
+`profiles/*/node_modules` 时，才需要按账号预留可观的磁盘空间。
 
 ## 账号与管理控制台
 
@@ -195,8 +188,8 @@ docker run … dsh-gateway --max-instances 3 --idle-minutes 5
    （`HttpOnly`，30 天 `Max-Age`，持久化存储，网关重启不会把人登出）。
 2. 网关把该会话解析为一个账号，按需启动该账号的 dsh，并从 dsh 启动横幅里读
    取 launch token。
-3. 它在服务端一次性铸出 dsh 自己的 `dsh-auth-*` cookie，并以不透明的
-   `__dsh_relay` 句柄转发。**dsh 凭证永远不会到达浏览器。**
+3. 它在服务端一次性铸出 dsh 自己的会话凭证，并以不透明句柄转发。
+   **dsh 凭证永远不会到达浏览器。**
 4. 之后的每个请求都是普通中继，`Host` 保持原样，因此 dsh 生成的 URL 是浏览
    器真正可达的。
 5. 如果 dsh 某次拒绝了缓存的凭证，网关会重铸并重试一次，而不是把页面卡在
@@ -213,29 +206,21 @@ docker run … dsh-gateway --max-instances 3 --idle-minutes 5
   登录打开的就是自己的目录。
 - **每个账号的模型设置是私有的。**dsh 把用户选的 provider 和模型保存到
   `DSH_HOME` 里的 `profiles/<name>/cordis.patch.yml`，所以每个用户拿到的是
-  profile 树的真实拷贝而不是指向模板的链接。共享它曾让一个用户保存的
-  provider 成为所有人的默认值——这是用两个真实账号实测后改成拷贝的。
+  profile 树的真实拷贝而不是指向模板的链接。共享它会让一个用户保存的
+  provider 成为所有人的默认值。
 - **每个账号需要自己的模型 API key**，因为每个账号是独立的 dsh、独立的凭证
-  存储。dsh 自己的设置页面无法在非回环源上加载（当 `location.hostname` 不是
-  回环地址时，它把页面宿主持久化降级为 `memory`，这正是局域网页面提示
-  "settings are unavailable in this browser" 的原因）。请改用**配置模型**开
-  关：网关通过该用户 dsh 的回环连接把 provider、key 引用和默认模型写进去，
-  那里 dsh 会做真实验证。路由的 profile 在哪由 dsh 回答，而不是网关——它把
-  `apiKeyEnv` 写到 `llm/listConfigurableProviders` 为该路由上报的
-  `settingsNs`/`settingsPath`，所以 `deepseek-official`（整节就是 profile）
-  和 pi-ai 路由（`settingsPath: ['providers', <route>]`）各自写到各自能解析
-  的位置。key 字段留空则保留已存的 key、只把路由重新指向它，这也是修复前保
-  存的 key 能继续工作的方式。模型字段旁的**获取模型**按钮向该用户的 dsh 询
-  问该路由的模型列表（`llm/discoverModels`，与 dsh 自己页面发起的远程调用相
-  同），模型 id 无须凭记忆输入；适配器未注册发现的路由仍会从 dsh 已有的目录
-  应答（`deepseek-official` 报告 `deepseek-flash` / `deepseek-v4-pro`）。
-  详见 [DESIGN.md](DESIGN.md)。
+  存储。dsh 自己的设置页面无法在非回环源上加载，这正是局域网页面提示
+  "settings are unavailable in this browser" 的原因。请改用**配置模型**开
+  关：网关通过该用户 dsh 的回环连接把 provider、key 和默认模型写进去，由 dsh
+  做真实验证。key 字段留空则保留已存的 key、只把路由重新指向它。模型字段旁
+  的**获取模型**按钮向该用户的 dsh 询问该路由的模型列表，模型 id 无须凭记忆
+  输入。详见 [DESIGN.md](DESIGN.md)。
 - **登录 cookie 以浏览器使用的 authority 命名。**cookie 不区分端口，所以共
   用一个主机名的两个网关（路由器上的 `home.example.com:2020`、工作站上的
   `:2021`）会互相覆盖登录态，每个请求都会答
   `{"error":"unauthenticated"}`。每个 authority 得到自己的
   `dsh-gateway-session-<hash>`，互不冲突；用第二个名字访问同一实例会要求再
-  登录一次，这与 dsh 自己 `dsh-auth-*` cookie 的语义一致。详见
+  登录一次，这与 dsh 自己会话 cookie 的语义一致。详见
   [DESIGN.md](DESIGN.md)。
 - **用户装的插件只属于该用户。**`dsh plugin add` 和插件管理器写进
   `profiles/`，那是每用户真实拷贝；只有安装树（`node_modules`、
