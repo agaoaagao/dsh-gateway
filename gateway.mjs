@@ -62,7 +62,7 @@ Per-user dsh (--spawn)
    --dsh-bin <path>         executable to spawn                    (default dsh)
   --dsh-arg <arg>          argument before dsh's own flags (repeatable)
   --max-instances <n>      hard cap on concurrent dsh processes       (default 8)
-  --idle-minutes <n>       stop an idle user's dsh                 (default 30)
+  --idle-minutes <n>       stop an idle user's dsh (0 = never)      (default 30)
   --trusted-host <host>    extra authority dsh should accept (repeatable)
 
 Other

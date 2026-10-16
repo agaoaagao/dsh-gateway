@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-137%20checks-blue)](#tests)
+[![Tests](https://img.shields.io/badge/tests-141%20checks-blue)](#tests)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4)](https://github.com/agaoaagao/dsh-gateway/pulls)
 
 English | [中文文档](docs/README.zh-CN.md) | [Design notes](docs/DESIGN.md)
@@ -210,7 +210,7 @@ throttled per client address and per user name.
 | `--dsh-bin <path>` | `dsh` | executable to spawn |
 | `--dsh-arg <arg>` | — | argument before dsh's own flags (repeatable) |
 | `--max-instances <n>` | `8` | hard cap on concurrent dsh processes |
-| `--idle-minutes <n>` | `30` | stop an idle user's dsh |
+| `--idle-minutes <n>` | `30` | stop an idle user's dsh; `0` never reaps |
 | `--trusted-host <host>` | — | extra authority dsh should accept (repeatable) |
 | `--public-asset <path>` | — | extra unauthenticated path to relay (repeatable) |
 
@@ -228,7 +228,7 @@ hides it.
 | `DSH_GATEWAY_ADMIN_PASSWORD` | `admin12345` |
 | `DSH_GATEWAY_TRUSTED_HOSTS` | `192.168.100.1` (comma-separated) |
 | `DSH_GATEWAY_MAX_INSTANCES` | `8` |
-| `DSH_GATEWAY_IDLE_MINUTES` | `30` |
+| `DSH_GATEWAY_IDLE_MINUTES` | `30` (`0` disables reaping) |
 | `DSH_GATEWAY_PROFILE` | `web` |
 | `DSH_GATEWAY_HOST_PORT` | `8080` (published port only) |
 | `DSH_GATEWAY_STATE` | `/srv/gateway/state.json` |
@@ -315,7 +315,8 @@ docker run … dsh-gateway --max-instances 3 --idle-minutes 5
 - **Idle reaping** stops a user's dsh after `--idle-minutes`; the next request
   starts a fresh one. Sessions live in that user's own home, so nothing is
   lost. If an account runs scheduled tasks, raise `--idle-minutes` so the
-  process outlives the quiet gaps between them.
+  process outlives the quiet gaps between them — or set it to `0` to disable
+  reaping entirely and let every instance run until the gateway stops.
 - **`/healthz`** is unauthenticated and reports the live instance count, for
   container orchestration.
 
@@ -323,7 +324,7 @@ docker run … dsh-gateway --max-instances 3 --idle-minutes 5
 
 ```sh
 node test-gateway.mjs   # 71 checks: the relay contract and gateway pages
-node test-spawn.mjs     # 66 checks: per-account isolation and accounts
+node test-spawn.mjs     # 70 checks: per-account isolation and accounts
 ```
 
 `test-gateway.mjs` drives the gateway against a fake dsh and covers durable

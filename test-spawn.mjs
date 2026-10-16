@@ -14,7 +14,7 @@
  *   - disabling an account stops its dsh and revokes its sessions
  *   - deleting an account does the same
  *   - the last administrator cannot be deleted
- *   - an idle instance is reaped
+ *   - an idle instance is reaped, and `--idle-minutes 0` never reaps
  *   - each instance's default workspace is pinned inside that account's home
  *
  * Run: node test-spawn.mjs
@@ -73,12 +73,12 @@ class Jar {
 }
 
 /** One HTTP request that never follows redirects. */
-function request({ method = 'GET', path, jar, body, headers = {}, host }) {
+function request({ method = 'GET', path, jar, body, headers = {}, host, port = PORT }) {
   return new Promise((resolve, reject) => {
     const jarHeader = jar === undefined ? '' : jar.header()
     const req = httpRequest({
       hostname: '127.0.0.1',
-      port: PORT,
+      port,
       path,
       method,
       headers: {
@@ -126,12 +126,13 @@ async function login(name, password) {
  * `Host: proxy.example.test` presents. Tests that drive a proxied authority have
  * to sign in on it, exactly as a real browser behind that proxy does.
  */
-async function loginVia(name, password, host) {
+async function loginVia(name, password, host, port = PORT) {
   const jar = new Jar()
   const response = await request({
     method: 'POST',
     path: '/__gateway/login',
     jar,
+    port,
     host,
     body: new URLSearchParams({ name, password }).toString(),
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -151,11 +152,11 @@ function admin(jar, method, path, body) {
 }
 
 /** Start the gateway and resolve once it is listening. */
-function startGateway(stateFile, homeRoot, template, extraArgs = []) {
+function startGateway(stateFile, homeRoot, template, extraArgs = [], overrides = {}) {
   const args = [
     GATEWAY,
     '--spawn',
-    '--listen', String(PORT),
+    '--listen', String(overrides.listen ?? PORT),
     '--bind', '127.0.0.1',
     '--state', stateFile,
     '--home-root', homeRoot,
@@ -163,7 +164,7 @@ function startGateway(stateFile, homeRoot, template, extraArgs = []) {
     '--dsh-bin', process.execPath,
     '--dsh-arg', FAKE_DSH,
     '--max-instances', '3',
-    '--idle-minutes', String(IDLE_MINUTES),
+    '--idle-minutes', String(overrides.idleMinutes ?? IDLE_MINUTES),
     ...extraArgs,
   ]
   const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -458,6 +459,41 @@ async function main() {
   const lockedOther = await login('alice', 'alice-password')
   check('the lockout also covers other account names from the same client',
     lockedOther.status === 429, `status ${String(lockedOther.status)}`)
+
+  // `--idle-minutes 0` is the documented "never reap": an appliance that must
+  // not interrupt anything keeps every account's dsh alive however quiet it is.
+  // The reaper still ticks (every 5 s at this setting), so one full idle window
+  // passes inside the sleep below — the old comparison would have stopped the
+  // instance on its very first tick.
+  process.stdout.write('\n== 9b. --idle-minutes 0 never reaps ==\n')
+  const idlePort = 8093
+  const idleAuthority = `127.0.0.1:${String(idlePort)}`
+  const gatewayIdleOff = startGateway(join(root, 'state-idle-off.json'), homeRoot, template, [],
+    { listen: idlePort, idleMinutes: 0 })
+  await gatewayIdleOff.ready
+  check('the startup log says reaping is off',
+    gatewayIdleOff.output().includes('idle reap off'),
+    gatewayIdleOff.output().split('\n').find(line => line.includes('idle reap')) ?? '')
+  const idleAdmin = await loginVia(ADMIN.name, ADMIN.password, idleAuthority, idlePort)
+  const idleBase = { port: idlePort, host: idleAuthority }
+  const keeperMade = await request({
+    method: 'POST',
+    path: '/__gateway/admin/api/users',
+    jar: idleAdmin.jar,
+    body: JSON.stringify({ name: 'keeper', password: 'keeper-password' }),
+    headers: { 'content-type': 'application/json' },
+    ...idleBase,
+  })
+  check('an account is created on the never-reap gateway',
+    keeperMade.status === 201, `${String(keeperMade.status)} ${keeperMade.body}`)
+  const keeper = await loginVia('keeper', 'keeper-password', idleAuthority, idlePort)
+  check('the keeper signs in on the never-reap gateway', keeper.status === 303, `status ${String(keeper.status)}`)
+  const keeperFirst = JSON.parse((await request({ path: '/whoami', jar: keeper.jar, ...idleBase })).body)
+  await sleep(12000)
+  const keeperSecond = JSON.parse((await request({ path: '/whoami', jar: keeper.jar, ...idleBase })).body)
+  check('an idle instance outlives the reap window', keeperSecond.pid === keeperFirst.pid,
+    `${String(keeperFirst.pid)} -> ${String(keeperSecond.pid)}`)
+  gatewayIdleOff.child.kill()
 
   process.stdout.write(`\n${passed}/${passed + failed} checks passed\n`)
   gateway2.child.kill()

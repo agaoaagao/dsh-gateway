@@ -151,7 +151,7 @@ dsh 及其端口、运行时长、内存和请求数。禁用或删除账号会�
 | `--dsh-bin <path>` | `dsh` | 要启动的可执行文件 |
 | `--dsh-arg <arg>` | — | 传在 dsh 自身参数之前的参数（可重复） |
 | `--max-instances <n>` | `8` | 并发 dsh 进程的硬上限 |
-| `--idle-minutes <n>` | `30` | 空闲多久后停掉该用户的 dsh |
+| `--idle-minutes <n>` | `30` | 空闲多久后停掉该用户的 dsh；`0` 表示永不回收 |
 | `--trusted-host <host>` | — | 额外让 dsh 信任的 authority（可重复） |
 | `--public-asset <path>` | — | 额外免认证中继的路径（可重复） |
 
@@ -167,7 +167,7 @@ dsh 及其端口、运行时长、内存和请求数。禁用或删除账号会�
 | `DSH_GATEWAY_ADMIN_PASSWORD` | `admin12345` |
 | `DSH_GATEWAY_TRUSTED_HOSTS` | `192.168.100.1`（逗号分隔） |
 | `DSH_GATEWAY_MAX_INSTANCES` | `8` |
-| `DSH_GATEWAY_IDLE_MINUTES` | `30` |
+| `DSH_GATEWAY_IDLE_MINUTES` | `30`（`0` 表示关闭回收） |
 | `DSH_GATEWAY_PROFILE` | `web` |
 | `DSH_GATEWAY_HOST_PORT` | `8080`（仅发布端口） |
 | `DSH_GATEWAY_STATE` | `/srv/gateway/state.json` |
@@ -237,14 +237,15 @@ docker run … dsh-gateway --max-instances 3 --idle-minutes 5
   也可以在控制台停任何实例，禁用或删除账号仍然立即停掉它的 dsh。
 - **空闲回收**在 `--idle-minutes` 之后停掉用户的 dsh；下一个请求会启动新的。
   会话在该用户自己的家目录里，什么都不会丢。如果某账号跑定时任务，把
-  `--idle-minutes` 调大，让进程活过任务之间的空闲间隔。
+  `--idle-minutes` 调大，让进程活过任务之间的空闲间隔——设成 `0` 则彻底关闭
+  回收，所有实例一直活到网关停机。
 - **`/healthz`** 免认证，报告存活实例数，供容器编排使用。
 
 ## 测试
 
 ```sh
 node test-gateway.mjs   # 71 项检查：中继契约与网关页面
-node test-spawn.mjs     # 66 项检查：按账号隔离与账号管理
+node test-spawn.mjs     # 70 项检查：按账号隔离与账号管理
 ```
 
 `test-gateway.mjs` 用一个假 dsh 驱动网关，覆盖持久 cookie、重启存活、失效凭
