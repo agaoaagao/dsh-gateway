@@ -387,29 +387,43 @@ async function main() {
   check('nothing is seeded into it, so dsh bootstraps it',
     readdirSync(newcomer).length === 0, readdirSync(newcomer).join(', '))
 
-  // Signing out is the user-visible "restart my dsh": the account's instance is
-  // stopped, so nothing keeps a port reserved for somebody who is not looking at
-  // it. State lives in DSH_HOME, so the next sign-in gets a clean process without
-  // losing anything. Alice is signed in twice on purpose here: an extra live
-  // session must not keep the process alive either.
-  process.stdout.write('\n== 8e. signing out stops that account\'s dsh ==\n')
+  // Signing out ends the browser session only: the account's dsh keeps
+  // running, because a scheduled task or automation inside it must survive a
+  // sign-out. Stopping is the administrator's move, or the user's own restart
+  // control. Alice signs in again afterwards and must land on the same process.
+  process.stdout.write('\n== 8e. signing out keeps that account\'s dsh running ==\n')
   const aliceBefore = JSON.parse((await request({ path: '/whoami', jar: alice.jar })).body)
   const aliceOut = await request({ method: 'POST', path: '/__gateway/logout', jar: alice.jar })
   check('sign-out redirects to the sign-in page',
     aliceOut.status === 303 && aliceOut.headers.location === '/__gateway/login',
     `${String(aliceOut.status)} -> ${String(aliceOut.headers.location)}`)
-  await sleep(100)
   const stateAfterSignOut = JSON.parse((await admin(adminLogin.jar, 'GET', '/state')).body)
-  check('the signed-out account has no running dsh',
-    !stateAfterSignOut.instances.some(i => i.user === 'alice'),
+  check('the signed-out account\'s dsh is still running',
+    stateAfterSignOut.instances.some(i => i.user === 'alice'),
     JSON.stringify(stateAfterSignOut.instances))
   check('the retired session cannot reach that dsh any more',
     (await request({ path: '/whoami', jar: alice.jar })).status === 401)
   const aliceFresh = await login('alice', 'alice-password')
   const aliceFreshWho = JSON.parse((await request({ path: '/whoami', jar: aliceFresh.jar })).body)
-  check('signing in again starts a fresh dsh process',
-    aliceFresh.status === 303 && aliceFreshWho.pid !== aliceBefore.pid,
+  check('signing in again reuses the still-running dsh process',
+    aliceFresh.status === 303 && aliceFreshWho.pid === aliceBefore.pid,
     `${String(aliceBefore.pid)} -> ${String(aliceFreshWho.pid)}`)
+
+  // The restart control is the user-visible "recycle my own instance": stop it,
+  // and the next request starts a fresh process against the same DSH_HOME.
+  process.stdout.write('\n== 8f. the restart control recycles the caller\'s instance ==\n')
+  const restarted = await request({ method: 'POST', path: '/__gateway/restart', jar: aliceFresh.jar })
+  check('restart answers ok', restarted.status === 200 && restarted.body.includes('"ok"'),
+    `status ${String(restarted.status)} body ${restarted.body}`)
+  await sleep(100)
+  const stateAfterRestart = JSON.parse((await admin(adminLogin.jar, 'GET', '/state')).body)
+  check('restart removed the running instance',
+    !stateAfterRestart.instances.some(i => i.user === 'alice'),
+    JSON.stringify(stateAfterRestart.instances))
+  const aliceAfterRestart = JSON.parse((await request({ path: '/whoami', jar: aliceFresh.jar })).body)
+  check('the next request starts a fresh dsh process',
+    aliceAfterRestart.pid !== aliceBefore.pid,
+    `${String(aliceBefore.pid)} -> ${String(aliceAfterRestart.pid)}`)
 
   process.stdout.write('\n== 9. account security: hashed storage, restart, lockout ==\n')
   const accountsFile = join(root, 'accounts.json')

@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-134%20checks-blue)](#tests)
+[![Tests](https://img.shields.io/badge/tests-137%20checks-blue)](#tests)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4)](https://github.com/agaoaagao/dsh-gateway/pulls)
 
 English | [中文文档](docs/README.zh-CN.md) | [Design notes](docs/DESIGN.md)
@@ -306,11 +306,16 @@ docker run … dsh-gateway --max-instances 3 --idle-minutes 5
   one-time restart.
 - **Sign out** is the button in the gateway's own header, which appears on the
   settings page and injected into dsh's workspace top bar. It lands on the
-  sign-in page and stops that account's dsh at the same time, so signing out and
-  in again is also how a user restarts their own instance; anything durable is in
-  their home, and a tab that is still signed in re-mints automatically.
+  sign-in page and ends the browser session — but it deliberately leaves that
+  account's dsh running, because a scheduled task or automation inside it must
+  survive a sign-out. To recycle the process, use the **重启 dsh** button next
+  to it: it stops that account's instance, and the next request starts a fresh
+  one against the same home. Administrators can also stop any instance from the
+  console, and disabling or deleting an account stops its dsh immediately.
 - **Idle reaping** stops a user's dsh after `--idle-minutes`; the next request
-  starts a fresh one. Sessions live in that user's own home, so nothing is lost.
+  starts a fresh one. Sessions live in that user's own home, so nothing is
+  lost. If an account runs scheduled tasks, raise `--idle-minutes` so the
+  process outlives the quiet gaps between them.
 - **`/healthz`** is unauthenticated and reports the live instance count, for
   container orchestration.
 
@@ -318,7 +323,7 @@ docker run … dsh-gateway --max-instances 3 --idle-minutes 5
 
 ```sh
 node test-gateway.mjs   # 71 checks: the relay contract and gateway pages
-node test-spawn.mjs     # 63 checks: per-account isolation and accounts
+node test-spawn.mjs     # 66 checks: per-account isolation and accounts
 ```
 
 `test-gateway.mjs` drives the gateway against a fake dsh and covers durable
