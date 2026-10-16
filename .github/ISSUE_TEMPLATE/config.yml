@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question / usage help
+    url: https://github.com/agaoaagao/dsh-gateway/discussions
+    about: Ask how to deploy or configure the gateway.

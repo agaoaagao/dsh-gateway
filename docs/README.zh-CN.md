@@ -254,3 +254,12 @@ node test-spawn.mjs     # 63 项检查：按账号隔离与账号管理
 
 [DESIGN.md](DESIGN.md) 记录了这些决定所依赖的调研——尤其是为什么插件无法隔
 离用户，以及局域网信任围栏为什么是这样表现的。
+
+## 参与贡献
+
+欢迎提交 Pull Request——开发环境与约定见
+[CONTRIBUTING.md](../CONTRIBUTING.md)（不引入新依赖；README 只描述可观察行为，
+不写 dsh 内部细节）。安全问题请通过
+[私有漏洞上报](https://github.com/agaoaagao/dsh-gateway/security)提交，不要开
+公开 issue。本项目遵循
+[贡献者公约](../CODE_OF_CONDUCT.md)。

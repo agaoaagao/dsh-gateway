@@ -336,3 +336,12 @@ guessing is locked out per client.
 [docs/DESIGN.md](docs/DESIGN.md) records the investigation these decisions rest
 on — in particular why a plugin cannot isolate users, and why the LAN trust
 fence behaves the way it does.
+
+## Contributing
+
+Pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development setup and ground rules (no new dependencies; the README documents
+observable behaviour, not dsh internals). Please report security issues through
+[private vulnerability reporting](https://github.com/agaoaagao/dsh-gateway/security)
+rather than a public issue. This project follows the
+[Contributor Covenant](CODE_OF_CONDUCT.md).

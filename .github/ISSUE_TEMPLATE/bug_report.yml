@@ -1,0 +1,45 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to file a bug. Security issues should go through [private vulnerability reporting](https://github.com/agaoaagao/dsh-gateway/security/advisories/new) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Minimal steps to reproduce, and what you expected instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: how-run
+    attributes:
+      label: How do you run the gateway?
+      options:
+        - Docker (published image)
+        - Docker (built from source)
+        - Bare Node
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: v0.1.1 or commit sha
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node version (or Docker platform), browser if relevant.
+      placeholder: Windows 11, Node 20, Chrome
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: gateway.log excerpts or console output. Redact passwords, API keys and hostnames.
+      render: shell
