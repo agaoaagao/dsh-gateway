@@ -1,0 +1,58 @@
+# dsh-gateway on a Docker host.
+#
+#   DSH_GATEWAY_ADMIN_PASSWORD='...' \
+#   DSH_GATEWAY_TRUSTED_HOSTS=192.168.100.1 \
+#   docker compose up -d --build
+#
+# Then open http://<docker-host>:8080/ and sign in. Each account that signs in
+# gets its own dsh process and its own home under the `data` volume.
+
+services:
+  dsh-gateway:
+    build:
+      context: .
+      args:
+        DSH_VERSION: ${DSH_VERSION:-0.2.0-rc.2}
+    image: dsh-gateway:${DSH_VERSION:-0.2.0-rc.2}
+    container_name: dsh-gateway
+    restart: unless-stopped
+
+    ports:
+      # Only the published port is configurable; the container always listens on
+      # 8080 so the healthcheck below stays correct.
+      - "${DSH_GATEWAY_HOST_PORT:-8080}:8080"
+
+    volumes:
+      # One volume holds everything stateful: the shared profile template
+      # (/srv/dsh), every account's private home (/srv/users) and the gateway's
+      # own sessions and account database (/srv/gateway).
+      - dsh-gateway-data:/srv
+
+    environment:
+      # The initial administrator password. Change it here, then sign in and use
+      # the console to create the other accounts.
+      DSH_GATEWAY_ADMIN_PASSWORD: ${DSH_GATEWAY_ADMIN_PASSWORD:-admin12345}
+
+      # The address a browser uses to reach this gateway. Required on a bridge
+      # network: dsh only accepts API calls from authorities it trusts, and it
+      # cannot discover the *host's* address from inside the container.
+      # Port-less entries are matched on any port.
+      DSH_GATEWAY_TRUSTED_HOSTS: ${DSH_GATEWAY_TRUSTED_HOSTS:-192.168.100.1}
+
+      DSH_GATEWAY_MAX_INSTANCES: ${DSH_GATEWAY_MAX_INSTANCES:-8}
+      DSH_GATEWAY_IDLE_MINUTES: ${DSH_GATEWAY_IDLE_MINUTES:-30}
+      TZ: ${TZ:-Asia/Shanghai}
+
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  dsh-gateway-data:

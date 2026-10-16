@@ -1,0 +1,9 @@
+# Normalize line endings in the repo; keep working-tree LF everywhere.
+* text=auto eol=lf
+
+# Windows-only files may keep CRLF.
+*.ps1 text eol=crlf
+
+# These are always binary.
+*.png binary
+*.ico binary

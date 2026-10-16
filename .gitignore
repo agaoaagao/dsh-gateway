@@ -1,0 +1,14 @@
+# Runtime state - never committed.
+gateway-state.json
+accounts.json
+test-state.json
+e2e-state.json
+*-state.json
+node_modules/
+
+# Internal design-validation report (Chinese, references dsh internals
+# and LAN addresses) - kept local, not part of the open-source repo.
+FINDINGS.md
+
+# Deployment secrets (see .env.example).
+.env

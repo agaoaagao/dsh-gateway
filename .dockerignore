@@ -1,0 +1,17 @@
+# Build context exclusions. The image only needs the gateway's own source; these
+# are local state and manual-test leftovers that must never be baked in.
+.git
+.gitignore
+node_modules
+*.log
+
+# Deployment secrets stay on the host; compose reads .env, the image does not.
+.env
+
+# Gateway state is per-deployment and lives on a volume, never in the image.
+gateway-state.json
+accounts.json
+e2e-state.json
+test-state.json
+*.bak
+.prototype.mjs.bak
