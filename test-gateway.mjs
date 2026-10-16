@@ -239,6 +239,7 @@ function call({ port, method = 'GET', path = '/', headers = {}, body, jar }) {
         headers: res.headers,
         body: Buffer.concat(chunks).toString('utf8'),
       }))
+      res.on('error', (error) => reject(new Error(`response stream reset on ${method} ${path}: ${error.message}`)))
     })
     req.on('error', reject)
     req.end(body)
@@ -264,6 +265,8 @@ function startGateway(extraArgs, label) {
     '--target', `http://127.0.0.1:${String(UPSTREAM_PORT)}`, '--state', STATE, ...extraArgs]
   const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'] })
   child.log = ''
+  child.label = label
+  gatewayChildren.push(child)
   child.stdout.on('data', (d) => { child.log += d.toString() })
   child.stderr.on('data', (d) => { child.log += d.toString() })
   // Resolve only once the startup banner is complete, so assertions may read
@@ -285,7 +288,13 @@ async function stop(child) {
 }
 
 // --- The test -----------------------------------------------------------------
+const gatewayChildren = []
 async function main() {
+  process.on('uncaughtException', (error) => {
+    console.error('CRASH', error)
+    for (const child of gatewayChildren) console.error(`--- ${child.label} log ---\n${child.log}`)
+    process.exit(1)
+  })
   rmSync(STATE, { force: true })
   await listen(upstream, UPSTREAM_PORT)
   await listen(control, CONTROL_PORT)
@@ -380,6 +389,10 @@ async function main() {
     shell.body.includes('href="/__gateway/settings"'), shell.body)
   check('an administrator\'s shell also links to the user console',
     shell.body.includes('href="/__gateway/admin"'), shell.body)
+  check('the shell keeps the actions behind a bottom-left avatar menu',
+    shell.body.includes('id="dsh-gw-avatar"') && shell.body.includes('id="dsh-gw-menu"'), shell.body)
+  check('the avatar names the signed-in account',
+    shell.body.includes('>A</button>') && shell.body.includes('<div class="dsh-gw-who">admin</div>'), shell.body)
   await call({
     port: GATEWAY_PORT,
     method: 'DELETE',
@@ -414,6 +427,8 @@ async function main() {
     viewerShell.status === 200 && viewerShell.body.includes('href="/__gateway/settings"') &&
       !viewerShell.body.includes('href="/__gateway/admin"'),
     `status ${String(viewerShell.status)} ${viewerShell.body}`)
+  check('a plain user\'s avatar names them, not the administrator',
+    viewerShell.body.includes('<div class="dsh-gw-who">viewer</div>'), viewerShell.body)
   const removedViewer = await call({
     port: GATEWAY_PORT,
     method: 'DELETE',

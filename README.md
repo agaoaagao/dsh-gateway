@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-141%20checks-blue)](#tests)
+[![Tests](https://img.shields.io/badge/tests-144%20checks-blue)](#tests)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4)](https://github.com/agaoaagao/dsh-gateway/pulls)
 
 English | [中文文档](docs/README.zh-CN.md) | [Design notes](docs/DESIGN.md)
@@ -179,7 +179,7 @@ http://<host>:8080/__gateway/admin
 ```
 
 Signed in as an administrator, this route is also reachable from the shell itself:
-the floating gateway controls gain a **用户管理** button next to 配置模型. A
+the account menu behind the bottom-left avatar gains a **用户管理** item. A
 non-administrator never sees it, because the route would only bounce them back to
 the sign-in page.
 
@@ -323,7 +323,7 @@ docker run … dsh-gateway --max-instances 3 --idle-minutes 5
 ## Tests
 
 ```sh
-node test-gateway.mjs   # 71 checks: the relay contract and gateway pages
+node test-gateway.mjs   # 74 checks: the relay contract and gateway pages
 node test-spawn.mjs     # 70 checks: per-account isolation and accounts
 ```
 

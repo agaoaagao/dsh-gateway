@@ -471,6 +471,7 @@ async function main() {
   const gatewayIdleOff = startGateway(join(root, 'state-idle-off.json'), homeRoot, template, [],
     { listen: idlePort, idleMinutes: 0 })
   await gatewayIdleOff.ready
+  await sleep(300) // the mode banner lands in the log just after the listening line
   check('the startup log says reaping is off',
     gatewayIdleOff.output().includes('idle reap off'),
     gatewayIdleOff.output().split('\n').find(line => line.includes('idle reap')) ?? '')

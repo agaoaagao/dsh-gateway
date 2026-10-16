@@ -18,8 +18,8 @@ documentation, and small features.
 ```sh
 git clone https://github.com/agaoaagao/dsh-gateway
 cd dsh-gateway
-node test-gateway.mjs   # 71 checks, runs against a fake dsh — no dsh needed
-node test-spawn.mjs     # 63 checks, needs a real dsh installation
+node test-gateway.mjs   # 74 checks, runs against a fake dsh — no dsh needed
+node test-spawn.mjs     # 70 checks, needs a real dsh installation
 ```
 
 Requirements: Node ≥ 18. There are no dependencies and no build step — the
