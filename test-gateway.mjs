@@ -455,16 +455,38 @@ async function main() {
   check('the shell keeps dsh\'s own markup',
     shell.status === 200 && shell.body.includes('dsh shell'),
     `status ${String(shell.status)}`)
-  check('the shell gains a sign-out control that works without JavaScript',
-    shell.body.includes('action="/__gateway/logout"') && shell.body.includes('method="POST"'), shell.body)
-  check('the shell gains a link to the configuration page',
-    shell.body.includes('href="/__gateway/settings"'), shell.body)
-  check('an administrator\'s shell also links to the user console',
-    shell.body.includes('href="/__gateway/admin"'), shell.body)
-  check('the shell keeps the actions behind a bottom-left avatar menu',
-    shell.body.includes('id="dsh-gw-avatar"') && shell.body.includes('id="dsh-gw-menu"'), shell.body)
-  check('the avatar names the signed-in account',
-    shell.body.includes('>A</button>') && shell.body.includes('<div class="dsh-gw-who">admin</div>'), shell.body)
+  check('the shell is not decorated with the retired floating avatar menu',
+    !shell.body.includes('id="dsh-gw-avatar"') && !shell.body.includes('href="/__gateway/settings"'),
+    shell.body)
+  check('the shell stays clean for the plugin era (no injected controls)',
+    !shell.body.includes('dsh-gw-menu') && !shell.body.includes('dsh-gw-who'), shell.body)
+  check('the shell carries the welcome auto-acknowledge snippet',
+    shell.body.includes('data-gateway-welcome-dismiss'), shell.body)
+  const me = await call({
+    port: GATEWAY_PORT,
+    path: '/__gateway/api/me',
+    jar: shellJar,
+  })
+  check('the panel API names the signed-in administrator',
+    me.status === 200 && (() => { try { const a = JSON.parse(me.body); return a.ok === true && a.user === 'admin' && a.admin === true } catch { return false } })(),
+    `status ${String(me.status)} ${me.body}`)
+  const cfgGet = await call({
+    port: GATEWAY_PORT,
+    path: '/__gateway/api/model-config',
+    jar: shellJar,
+  })
+  check('the panel API reads the model configuration as JSON',
+    cfgGet.status === 200 && cfgGet.body.includes('"options"'), `status ${String(cfgGet.status)} ${cfgGet.body.slice(0, 200)}`)
+  const cfgBad = await call({
+    port: GATEWAY_PORT,
+    method: 'POST',
+    path: '/__gateway/api/model-config',
+    jar: shellJar,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ provider: '', apiKey: '', model: '' }),
+  })
+  check('the panel API rejects an empty model save',
+    cfgBad.status === 400 && cfgBad.body.includes('error'), `status ${String(cfgBad.status)} ${cfgBad.body}`)
   await call({
     port: GATEWAY_PORT,
     method: 'DELETE',
@@ -495,12 +517,18 @@ async function main() {
     jar: viewerJar,
     headers: { accept: 'text/html,application/xhtml+xml' },
   })
-  check('a plain user\'s shell is not offered the user console',
-    viewerShell.status === 200 && viewerShell.body.includes('href="/__gateway/settings"') &&
+  check('a plain user\'s shell is also free of injected gateway controls',
+    viewerShell.status === 200 && !viewerShell.body.includes('dsh-gw-avatar') &&
       !viewerShell.body.includes('href="/__gateway/admin"'),
     `status ${String(viewerShell.status)} ${viewerShell.body}`)
-  check('a plain user\'s avatar names them, not the administrator',
-    viewerShell.body.includes('<div class="dsh-gw-who">viewer</div>'), viewerShell.body)
+  const viewerMe = await call({
+    port: GATEWAY_PORT,
+    path: '/__gateway/api/me',
+    jar: viewerJar,
+  })
+  check('the panel API marks a plain user as non-admin',
+    viewerMe.status === 200 && (() => { try { const a = JSON.parse(viewerMe.body); return a.ok === true && a.user === 'viewer' && a.admin === false } catch { return false } })(),
+    `status ${String(viewerMe.status)} ${viewerMe.body}`)
   const removedViewer = await call({
     port: GATEWAY_PORT,
     method: 'DELETE',

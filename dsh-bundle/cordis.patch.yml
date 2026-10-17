@@ -1,0 +1,3 @@
+- insert:
+  - id: gateway-panel
+    name: "@local/gateway-panel"

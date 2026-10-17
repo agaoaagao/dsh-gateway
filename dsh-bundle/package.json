@@ -1,0 +1,29 @@
+{
+  "name": "@local/gateway-panel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gateway account panel: model config, user management, restart dsh, sign out — a Settings section page.",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale/en.json",
+    "locale/zh.json"
+  ]
+}

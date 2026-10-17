@@ -1,0 +1,30 @@
+{
+  "meta": {
+    "title": "Gateway Panel",
+    "description": "Gateway account panel in Settings: model config, user management, restart dsh, sign out."
+  },
+  "gateway": {
+    "section": "Gateway",
+    "account": "Account",
+    "modelTitle": "Model configuration",
+    "provider": "Provider",
+    "apiKey": "API Key",
+    "apiKeySet": "Configured ({ref}); leave blank to keep",
+    "apiKeyHint": "Paste provider API key",
+    "model": "Default model",
+    "fetchModels": "Fetch models",
+    "save": "Save and inject",
+    "users": "User management",
+    "openAdmin": "Open admin console",
+    "restart": "Restart dsh",
+    "restartConfirm": "Restart your own dsh process? It recovers in a few seconds; unsaved drafts may be lost.",
+    "restartFail": "Restart failed: {err}",
+    "signOut": "Sign out",
+    "saved": "Saved and injected: {changed}",
+    "fetching": "Fetching…",
+    "fetchNone": "dsh listed no models; type the model id manually.",
+    "loading": "Loading…",
+    "loadFail": "Cannot reach the gateway: {err}",
+    "pickModel": "{n} models listed; pick one."
+  }
+}
