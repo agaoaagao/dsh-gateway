@@ -1,9 +1,15 @@
 /**
- * @local/gateway-panel — the gateway's account panel as a dsh Settings section.
+ * @local/gateway-panel — the gateway's account panel as a dsh Settings sections.
  *
- * Replaces the floating avatar the gateway used to inject into relayed shells:
- * the entry lives in dsh's own Settings as a "网关" page offering model
- * configuration, user management (administrators), restart dsh and sign out.
+ * Replaces the floating avatar the gateway used to inject into relayed shells.
+ * Two Settings entries:
+ *   - 「模型」 (order 79): the gateway-backed model configuration. dsh's own
+ *     Models page cannot work in gateway mode, so when running behind the
+ *     gateway we hide that native nav entry and take its place.
+ *   - 「网关」 (order 80): account (sign out, admin console) and restart dsh.
+ * The two entries are registered adjacently on purpose: the only reliable way
+ * to tell our 模型 nav cell apart from the native one is that ours is the one
+ * immediately followed by the 网关 cell.
  * Every request goes to the gateway origin itself, so no CORS and no second
  * sign-in are involved.
  */
@@ -33,8 +39,21 @@
 .gw-badge{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;font-size:11px;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
 `
 
-    function GatewayPage({ t }) {
-      const [me, setMe] = React.useState(null)
+    function useGatewayJson(url, onFail) {
+      // returns [value, setValue] loaded once; onFail receives the error message
+      const [value, setValue] = React.useState(null)
+      React.useEffect(() => {
+        let alive = true
+        fetch(url).then(r => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+          .then(ans => { if (alive) setValue(ans) })
+          .catch(err => { if (alive && onFail) onFail(err.message) })
+        return () => { alive = false }
+      }, [])
+      return [value, setValue]
+    }
+
+    // ---------------------------------------------------------------- 模型 --
+    function ModelPage({ t }) {
       const [cfg, setCfg] = React.useState(null)
       const [apiKey, setApiKey] = React.useState('')
       const [model, setModel] = React.useState('')
@@ -44,25 +63,20 @@
 
       React.useEffect(() => {
         let alive = true
-        Promise.all([
-          fetch('/__gateway/api/me').then(r => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))),
-          fetch('/__gateway/api/model-config').then(r => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))),
-        ]).then(([meAns, cfgAns]) => {
-          if (!alive) return
-          setMe(meAns)
-          if (cfgAns.ok) {
-            setCfg(cfgAns.config)
-            setModel(cfgAns.config.model ?? '')
-          } else setMsg({ kind: 'bad', text: cfgAns.error || 'load failed' })
-        }).catch(err => {
-          if (alive) setMsg({ kind: 'bad', text: fmt(t('loadFail', { err: err.message })) })
-        })
+        fetch('/__gateway/api/model-config')
+          .then(r => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+          .then(ans => {
+            if (!alive) return
+            if (ans.ok) {
+              setCfg(ans.config)
+              setModel(ans.config.model ?? '')
+            } else setMsg({ kind: 'bad', text: ans.error || 'load failed' })
+          })
+          .catch(err => { if (alive) setMsg({ kind: 'bad', text: fmt(t('loadFail', { err: err.message })) }) })
         return () => { alive = false }
       }, [])
 
-      function fmt(text) {
-        return String(text ?? '')
-      }
+      function fmt(text) { return String(text ?? '') }
 
       async function fetchModels() {
         if (!cfg?.provider) { setMsg({ kind: 'bad', text: fmt(t('fetchNone')) }); return }
@@ -94,40 +108,11 @@
         finally { setBusy(false) }
       }
 
-      async function restart() {
-        if (!window.confirm(fmt(t('restartConfirm')))) return
-        setBusy(true)
-        try {
-          const r = await fetch('/__gateway/restart', { method: 'POST' })
-          if (!r.ok) throw new Error('HTTP ' + r.status)
-          window.location.reload()
-        } catch (err) {
-          setMsg({ kind: 'bad', text: fmt(t('restartFail', { err: err.message })) })
-          setBusy(false)
-        }
-      }
-
-      async function signOut() {
-        try { await fetch('/__gateway/logout', { method: 'POST', redirect: 'manual' }) } catch {}
-        window.location.href = '/__gateway/login'
-      }
-
       const provider = cfg?.provider ?? ''
       const options = cfg?.options ?? []
       return React.createElement('div', { className: 'gw-panel' },
         React.createElement('style', null, CSS),
         msg && React.createElement('div', { className: 'gw-msg ' + msg.kind }, fmt(msg.text)),
-        // --- Account -------------------------------------------------------
-        React.createElement('div', { className: 'gw-card' },
-          React.createElement('h3', null, fmt(t('account'))),
-          React.createElement('div', { className: 'gw-who' },
-            me?.user ?? '…',
-            me?.admin ? React.createElement('span', { className: 'gw-badge' }, 'admin') : null),
-          React.createElement('div', { className: 'gw-row' },
-            React.createElement('button', { className: 'gw-btn dan', onClick: signOut, disabled: busy }, fmt(t('signOut'))),
-            me?.admin ? React.createElement('a', { href: '/__gateway/admin', target: '_blank', rel: 'noreferrer', style: { textDecoration: 'none' } },
-              React.createElement('button', { className: 'gw-btn', type: 'button' }, fmt(t('openAdmin')))) : null)),
-        // --- Model configuration -------------------------------------------
         React.createElement('div', { className: 'gw-card' },
           React.createElement('h3', null, fmt(t('modelTitle'))),
           React.createElement('div', { className: 'gw-row' },
@@ -161,14 +146,63 @@
             m.label && m.label !== m.id ? m.id + ' — ' + m.label : m.id))),
           React.createElement('div', { className: 'gw-row' },
             React.createElement('button', { className: 'gw-btn pri', type: 'button', onClick: save, disabled: busy || !cfg }, fmt(t('save'))))),
-        // --- Restart ---------------------------------------------------------
+      )
+    }
+
+    // ---------------------------------------------------------------- 网关 --
+    function AccountPage({ t }) {
+      const [me, setMe] = React.useState(null)
+      const [msg, setMsg] = React.useState(null)
+      const [busy, setBusy] = React.useState(false)
+
+      React.useEffect(() => {
+        let alive = true
+        fetch('/__gateway/api/me')
+          .then(r => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+          .then(ans => { if (alive) setMe(ans) })
+          .catch(err => { if (alive) setMsg({ kind: 'bad', text: fmt(t('loadFail', { err: err.message })) }) })
+        return () => { alive = false }
+      }, [])
+
+      function fmt(text) { return String(text ?? '') }
+
+      async function restart() {
+        if (!window.confirm(fmt(t('restartConfirm')))) return
+        setBusy(true)
+        try {
+          const r = await fetch('/__gateway/restart', { method: 'POST' })
+          if (!r.ok) throw new Error('HTTP ' + r.status)
+          window.location.reload()
+        } catch (err) {
+          setMsg({ kind: 'bad', text: fmt(t('restartFail', { err: err.message })) })
+          setBusy(false)
+        }
+      }
+
+      async function signOut() {
+        try { await fetch('/__gateway/logout', { method: 'POST', redirect: 'manual' }) } catch {}
+        window.location.href = '/__gateway/login'
+      }
+
+      return React.createElement('div', { className: 'gw-panel' },
+        React.createElement('style', null, CSS),
+        msg && React.createElement('div', { className: 'gw-msg ' + msg.kind }, fmt(msg.text)),
+        React.createElement('div', { className: 'gw-card' },
+          React.createElement('h3', null, fmt(t('account'))),
+          React.createElement('div', { className: 'gw-who' },
+            me?.user ?? '…',
+            me?.admin ? React.createElement('span', { className: 'gw-badge' }, 'admin') : null),
+          React.createElement('div', { className: 'gw-row' },
+            React.createElement('button', { className: 'gw-btn dan', onClick: signOut, disabled: busy }, fmt(t('signOut'))),
+            me?.admin ? React.createElement('a', { href: '/__gateway/admin', target: '_blank', rel: 'noreferrer', style: { textDecoration: 'none' } },
+              React.createElement('button', { className: 'gw-btn', type: 'button' }, fmt(t('openAdmin')))) : null)),
         React.createElement('div', { className: 'gw-card' },
           React.createElement('button', { className: 'gw-btn', type: 'button', onClick: restart, disabled: busy }, fmt(t('restart')))),
       )
     }
 
     const ZH = {
-      section: '网关', account: '账户', modelTitle: '模型配置', provider: '服务商', apiKey: 'API Key',
+      section: '网关', modelsSection: '模型', account: '账户', modelTitle: '模型配置', provider: '服务商', apiKey: 'API Key',
       apiKeySet: '已配置（{ref}），留空保持不变', apiKeyHint: '粘贴服务商 API Key', model: '默认模型',
       fetchModels: '获取模型', save: '保存并注入', openAdmin: '打开管理控制台', restart: '重启 dsh',
       restartConfirm: '重启你自己的 dsh 进程？几秒钟后自动恢复，未保存的对话草稿可能丢失。',
@@ -177,13 +211,39 @@
       loadFail: '无法连接网关：{err}', pickModel: 'dsh 报出 {n} 个模型，选一个即可。',
     }
     const EN = {
-      section: 'Gateway', account: 'Account', modelTitle: 'Model configuration', provider: 'Provider', apiKey: 'API Key',
+      section: 'Gateway', modelsSection: 'Models', account: 'Account', modelTitle: 'Model configuration', provider: 'Provider', apiKey: 'API Key',
       apiKeySet: 'Configured ({ref}); leave blank to keep', apiKeyHint: 'Paste provider API key', model: 'Default model',
       fetchModels: 'Fetch models', save: 'Save and inject', openAdmin: 'Open admin console', restart: 'Restart dsh',
       restartConfirm: 'Restart your own dsh process? It recovers in seconds; unsaved drafts may be lost.',
       restartFail: 'Restart failed: {err}', signOut: 'Sign out', saved: 'Saved and injected: {changed}',
       fetching: 'Fetching…', fetchNone: 'dsh listed no models; type the model id manually.',
       loadFail: 'Cannot reach the gateway: {err}', pickModel: '{n} models listed; pick one.',
+    }
+
+    // Hide dsh's own 模型 settings nav entry when running behind the gateway:
+    // it cannot work there. Our own 模型 entry is identified as the nav cell
+    // immediately followed by the 网关 cell (they are registered adjacently).
+    function startHideNativeModels() {
+      const navCells = () => [...document.querySelectorAll('button')]
+        .filter(b => b.textContent?.trim() && b.parentElement?.querySelectorAll('button').length >= 4)
+      function sweep() {
+        const cells = navCells()
+        const modelsBtns = cells.filter(b => b.textContent.trim() === label('模型', 'Models'))
+        if (modelsBtns.length === 0) return
+        const isNav = modelsBtns.some(b => cells.some(c => c !== b && c.parentElement === b.parentElement))
+        if (!isNav) return
+        for (const b of modelsBtns) {
+          const next = b.nextElementSibling
+          const ours = next && next.tagName === 'BUTTON' &&
+            (next.textContent.trim() === label('网关', 'Gateway'))
+          if (!ours) b.style.display = 'none'
+        }
+      }
+      sweep()
+      new MutationObserver(sweep).observe(document.body, { childList: true, subtree: true })
+    }
+    function label(zh, en) {
+      return String(document.documentElement.lang ?? 'zh').startsWith('zh') ? zh : en
     }
 
     function apply(ctx) {
@@ -202,13 +262,19 @@
         }
       }
       ctx.slots.inject('settings.section', () => ctx.slots.register(
-        { name: 'settings.section', id: 'gateway', order: 80, label: () => safeLabel(t) },
-        props => React.createElement(GatewayPage, { t: withParams(t, props) }),
+        { name: 'settings.section', id: 'gateway-models', order: 79, label: () => safeLabel(t, 'modelsSection', '模型') },
+        props => React.createElement(ModelPage, { t: withParams(t, props) }),
       ))
+      ctx.slots.inject('settings.section', () => ctx.slots.register(
+        { name: 'settings.section', id: 'gateway', order: 80, label: () => safeLabel(t, 'section', '网关') },
+        props => React.createElement(AccountPage, { t: withParams(t, props) }),
+      ))
+      // Only behind the gateway do we replace the native Models entry.
+      fetch('/__gateway/api/me').then(r => { if (r.ok) startHideNativeModels() }).catch(() => {})
     }
 
-    function safeLabel(t) {
-      try { return t('section') } catch { return '网关' }
+    function safeLabel(t, key, fallback) {
+      try { return t(key) } catch { return fallback }
     }
     function withParams(t, _props) {
       return (key, params) => {
