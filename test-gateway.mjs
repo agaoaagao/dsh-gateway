@@ -477,15 +477,33 @@ async function main() {
   })
   check('the panel API reads the model configuration as JSON',
     cfgGet.status === 200 && cfgGet.body.includes('"options"'), `status ${String(cfgGet.status)} ${cfgGet.body.slice(0, 200)}`)
+  const provs = await call({
+    port: GATEWAY_PORT,
+    path: '/__gateway/api/model-providers',
+    jar: shellJar,
+  })
+  check('the provider catalog API answers with rows and the default model',
+    provs.status === 200 && provs.body.includes('"providers"') && provs.body.includes('"defaultModel"'),
+    `status ${String(provs.status)} ${provs.body.slice(0, 200)}`)
+  const discBad = await call({
+    port: GATEWAY_PORT,
+    method: 'POST',
+    path: '/__gateway/api/models/discover',
+    jar: shellJar,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ provider: '' }),
+  })
+  check('the discovery API rejects an empty provider id',
+    discBad.status === 400 && discBad.body.includes('error'), `status ${String(discBad.status)} ${discBad.body}`)
   const cfgBad = await call({
     port: GATEWAY_PORT,
     method: 'POST',
     path: '/__gateway/api/model-config',
     jar: shellJar,
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ provider: '', apiKey: '', model: '' }),
+    body: JSON.stringify({ provider: 'bad id!', apiKey: '' }),
   })
-  check('the panel API rejects an empty model save',
+  check('the model save rejects an invalid provider id',
     cfgBad.status === 400 && cfgBad.body.includes('error'), `status ${String(cfgBad.status)} ${cfgBad.body}`)
   await call({
     port: GATEWAY_PORT,

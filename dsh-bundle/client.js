@@ -37,6 +37,30 @@
 .gw-models{width:100%;margin-top:8px;height:30px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}
 .gw-who{font-size:13px}
 .gw-badge{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;font-size:11px;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
+
+.gw-prov{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}
+.gw-prow{display:flex;align-items:center;gap:8px;width:100%;padding:12px 14px;background:transparent;border:0;color:var(--dsw-alias-label-primary);font-size:13px;cursor:pointer;text-align:left}
+.gw-prow:hover{background:var(--dsw-alias-bg-layer-2)}
+.gw-prow.add .gw-pname{color:var(--dsw-alias-label-secondary)}
+.gw-chev{flex:none;width:14px;color:var(--dsw-alias-label-secondary)}
+.gw-pname{font-weight:600}
+.gw-psub{color:var(--dsw-alias-label-secondary);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+.gw-tag{flex:none;margin-left:auto;font-size:11px;padding:1px 8px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
+.gw-tag+.gw-tag{margin-left:6px}
+.gw-tag.warn{color:var(--dsw-alias-warn-primary,#d97706);border-color:currentColor}
+.gw-editor{border-top:1px solid var(--dsw-alias-border-l1);padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.gw-note{font-size:12px;color:var(--dsw-alias-label-secondary);margin:4px 0}
+.gw-tabs{display:flex;gap:6px;margin-bottom:6px}
+.gw-tab{flex:none;padding:5px 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:12px}
+.gw-tab.on{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base);border-color:var(--dsw-alias-label-primary);font-weight:600}
+.gw-models-box{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;margin:4px 0}
+.gw-mlabel{font-size:12px;color:var(--dsw-alias-label-secondary)}
+.gw-mrow{display:flex;gap:6px}
+.gw-mrow input{flex:1;min-width:0;height:28px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);padding:0 8px;font-size:12px}
+.gw-mrow input.gw-num{flex:none;width:80px}
+.gw-x{flex:none;width:26px;border:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:13px}
+.gw-x:hover{color:var(--dsw-alias-state-error)}
+.gw-cand{display:flex;align-items:center;gap:8px;font-size:12px;padding:2px 0}
 `
 
     function useGatewayJson(url, onFail) {
@@ -53,99 +77,243 @@
     }
 
     // ---------------------------------------------------------------- 模型 --
+    // Shaped like dsh's own Models page: one row per provider, click to expand
+    // the editor card (one at a time), an add-provider card at the bottom with
+    // the two native modes — pick a catalogue provider, or declare a custom
+    // API (id + endpoint + protocol + discovered models).
     function ModelPage({ t }) {
-      const [cfg, setCfg] = React.useState(null)
-      const [apiKey, setApiKey] = React.useState('')
-      const [model, setModel] = React.useState('')
-      const [models, setModels] = React.useState(null)
-      const [msg, setMsg] = React.useState(null) // {kind:'ok'|'bad'|'info', text}
+      const [data, setData] = React.useState(null)
+      const [expanded, setExpanded] = React.useState(null) // provider id | 'add'
+      const [draft, setDraft] = React.useState({})         // per-provider edits
+      const [addTab, setAddTab] = React.useState('catalog')
+      const [addForm, setAddForm] = React.useState({ id: '', displayName: '', baseURL: '', protocol: 'openai-completions', apiKey: '', candidates: null, picked: {}, models: [{ id: '', name: '', contextWindow: '' }] })
+      const [msg, setMsg] = React.useState(null)
       const [busy, setBusy] = React.useState(false)
 
+      function fmt(text) { return String(text ?? '') }
+      function load() {
+        return fetch('/__gateway/api/model-providers')
+          .then(r => r.json())
+          .then(ans => {
+            if (!ans.ok) throw new Error(ans.error || 'HTTP error')
+            setData({ providers: ans.providers ?? [], defaultModel: ans.defaultModel ?? {} })
+          })
+      }
       React.useEffect(() => {
         let alive = true
-        fetch('/__gateway/api/model-config')
-          .then(r => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
-          .then(ans => {
-            if (!alive) return
-            if (ans.ok) {
-              setCfg(ans.config)
-              setModel(ans.config.model ?? '')
-            } else setMsg({ kind: 'bad', text: ans.error || 'load failed' })
-          })
-          .catch(err => { if (alive) setMsg({ kind: 'bad', text: fmt(t('loadFail', { err: err.message })) }) })
+        load().catch(err => { if (alive) setMsg({ kind: 'bad', text: fmt(t('loadFail', { err: err.message })) }) })
         return () => { alive = false }
       }, [])
 
-      function fmt(text) { return String(text ?? '') }
-
-      async function fetchModels() {
-        if (!cfg?.provider) { setMsg({ kind: 'bad', text: fmt(t('fetchNone')) }); return }
-        setBusy(true); setMsg({ kind: 'info', text: fmt(t('fetching')) })
-        try {
-          const ans = await (await fetch('/__gateway/models?provider=' + encodeURIComponent(cfg.provider), { headers: { accept: 'application/json' } })).json()
-          if (!ans.ok || ans.models.length === 0) {
-            setModels(null); setMsg({ kind: 'bad', text: ans.error || fmt(t('fetchNone')) }); return
-          }
-          setModels(ans.models)
-          setMsg({ kind: 'info', text: fmt(t('pickModel', { n: ans.models.length })) })
-        } catch (err) { setMsg({ kind: 'bad', text: err.message }) }
-        finally { setBusy(false) }
-      }
-
-      async function save() {
+      async function post(body) {
         setBusy(true); setMsg(null)
         try {
           const ans = await (await fetch('/__gateway/api/model-config', {
             method: 'POST',
             headers: { 'content-type': 'application/json', accept: 'application/json' },
-            body: JSON.stringify({ provider: cfg?.provider ?? '', apiKey, model }),
+            body: JSON.stringify(body),
           })).json()
-          if (!ans.ok) { setMsg({ kind: 'bad', text: ans.error || 'save failed' }); return }
-          setApiKey('')
-          if (ans.config) setCfg(ans.config)
+          if (!ans.ok) { setMsg({ kind: 'bad', text: ans.error || 'HTTP error' }); return false }
+          setData({ providers: ans.providers ?? [], defaultModel: ans.defaultModel ?? {} })
           setMsg({ kind: 'ok', text: fmt(t('saved', { changed: (ans.changed ?? []).join('、') })) })
-        } catch (err) { setMsg({ kind: 'bad', text: err.message }) }
+          return true
+        } catch (err) { setMsg({ kind: 'bad', text: err.message }); return false }
         finally { setBusy(false) }
       }
 
-      const provider = cfg?.provider ?? ''
-      const options = cfg?.options ?? []
+      function draftOf(id) {
+        return draft[id] ?? { apiKey: '', baseURL: '', displayName: '', models: null }
+      }
+      function setDraftOf(id, patch) {
+        setDraft(d => ({ ...d, [id]: { ...draftOf(id), ...patch } }))
+      }
+
+      async function saveProvider(p) {
+        const d = draftOf(p.provider)
+        const ok = await post({
+          provider: p.provider,
+          apiKey: d.apiKey,
+          baseURL: p.custom || p.profile ? d.baseURL : undefined,
+          displayName: p.custom ? d.displayName : undefined,
+          models: p.custom && d.models ? d.models.filter(m => m.id.trim() !== '') : undefined,
+        })
+        if (ok) setDraftOf(p.provider, { apiKey: '' })
+      }
+      async function removeProvider(p) {
+        if (!window.confirm(fmt(t('removeConfirm', { name: p.label })))) return
+        const ok = await post({ provider: p.provider, remove: true })
+        if (ok) { setExpanded(null); setDraft(d => { const n = { ...d }; delete n[p.provider]; return n }) }
+      }
+
+      async function discoverDraft() {
+        setBusy(true); setMsg(null)
+        try {
+          const ans = await (await fetch('/__gateway/api/models/discover', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', accept: 'application/json' },
+            body: JSON.stringify({
+              provider: addForm.id.trim() || 'draft',
+              baseURL: addForm.baseURL, api: addForm.protocol, apiKey: addForm.apiKey,
+            }),
+          })).json()
+          if (!ans.ok) { setMsg({ kind: 'bad', text: ans.error || 'HTTP error' }); return }
+          if (ans.models.length === 0) { setMsg({ kind: 'bad', text: fmt(t('fetchNone')) }); return }
+          setAddForm(f => ({ ...f, candidates: ans.models, picked: Object.fromEntries(ans.models.map(m => [m.id, true])) }))
+          setMsg({ kind: 'info', text: fmt(t('pickModel', { n: ans.models.length })) })
+        } catch (err) { setMsg({ kind: 'bad', text: err.message }) }
+        finally { setBusy(false) }
+      }
+      async function createCustom() {
+        const picked = addForm.candidates ? addForm.candidates.filter(m => addForm.picked[m.id]) : []
+        const manual = (addForm.models ?? []).map(m => ({ ...m })).filter(m => m.id.trim() !== '')
+        const models = picked.length > 0 ? picked : manual
+        const ok = await post({
+          provider: addForm.id.trim(),
+          displayName: addForm.displayName,
+          baseURL: addForm.baseURL,
+          protocol: addForm.protocol,
+          apiKey: addForm.apiKey,
+          models,
+        })
+        if (ok) {
+          setAddForm({ id: '', displayName: '', baseURL: '', protocol: addForm.protocol, apiKey: '', candidates: null, picked: {}, models: [{ id: '', name: '', contextWindow: '' }] })
+          setExpanded(null)
+        }
+      }
+
+      if (!data) return React.createElement('div', { className: 'gw-panel' }, React.createElement('style', null, CSS), fmt(t('loading')))
+      const isDefault = p => data.defaultModel.provider === p.provider
+      const catalogOptions = data.providers.filter(p => p.configurable && p.profile === null)
+
+      function editorModels(p) {
+        const d = draftOf(p.provider)
+        const rows = d.models ?? (p.profile?.models ?? []).map(m => ({ id: m.id, name: m.label !== m.id ? m.label : '', contextWindow: m.contextWindow ?? '' }))
+        const setRows = models => setDraftOf(p.provider, { models })
+        return React.createElement('div', { className: 'gw-models-box' },
+          React.createElement('div', { className: 'gw-mlabel' }, fmt(t('catalog'))),
+          rows.map((m, i) => React.createElement('div', { className: 'gw-mrow', key: i },
+            React.createElement('input', { value: m.id, placeholder: 'model-id', spellCheck: false, disabled: !p.custom,
+              onChange: e => { const n = rows.slice(); n[i] = { ...m, id: e.target.value }; setRows(n) } }),
+            React.createElement('input', { value: m.name ?? '', placeholder: fmt(t('modelName')), spellCheck: false, disabled: !p.custom,
+              onChange: e => { const n = rows.slice(); n[i] = { ...m, name: e.target.value }; setRows(n) } }),
+            React.createElement('input', { className: 'gw-num', value: m.contextWindow ?? '', placeholder: 'context', disabled: !p.custom,
+              onChange: e => { const n = rows.slice(); n[i] = { ...m, contextWindow: e.target.value }; setRows(n) } }),
+            p.custom ? React.createElement('button', { className: 'gw-x', type: 'button', title: fmt(t('removeModel')),
+              onClick: () => setRows(rows.filter((_, j) => j !== i)) }, '✕') : null)),
+          p.custom ? React.createElement('button', { className: 'gw-btn', type: 'button',
+            onClick: () => setRows([...rows, { id: '', name: '', contextWindow: '' }]) }, '+ ' + fmt(t('addModel'))) : null,
+        )
+      }
+
+      function editorCard(p) {
+        const d = draftOf(p.provider)
+        const custom = p.custom
+        return React.createElement('div', { className: 'gw-editor' },
+          custom ? React.createElement('div', { className: 'gw-row' },
+            React.createElement('label', null, fmt(t('displayName'))),
+            React.createElement('input', { value: d.displayName || p.profile?.displayName || '', spellCheck: false,
+              onChange: e => setDraftOf(p.provider, { displayName: e.target.value }) })) : null,
+          custom ? React.createElement('div', { className: 'gw-row' },
+            React.createElement('label', null, 'Base URL'),
+            React.createElement('input', { value: d.baseURL || p.profile?.baseURL || '', placeholder: 'https://…/v1', spellCheck: false,
+              onChange: e => setDraftOf(p.provider, { baseURL: e.target.value }) })) : null,
+          p.profile === null && !custom ? React.createElement('div', { className: 'gw-note' }, fmt(t('accountNote'))) : null,
+          React.createElement('div', { className: 'gw-row' },
+            React.createElement('label', null, fmt(t('apiKey'))),
+            React.createElement('input', { type: 'password', autoComplete: 'new-password', value: d.apiKey,
+              placeholder: p.keyConfigured ? fmt(t('apiKeySet', { ref: p.keyRef ?? '' })) : fmt(t('apiKeyHint')),
+              onChange: e => setDraftOf(p.provider, { apiKey: e.target.value }) })),
+          p.profile && p.profile.models.length > 0 || custom ? editorModels(p) : null,
+          React.createElement('div', { className: 'gw-row' },
+            React.createElement('button', { className: 'gw-btn pri', type: 'button', disabled: busy, onClick: () => saveProvider(p) }, fmt(t('save'))),
+            custom ? React.createElement('button', { className: 'gw-btn dan', type: 'button', disabled: busy, onClick: () => removeProvider(p) }, fmt(t('remove'))) : null),
+        )
+      }
+
+      function addCard() {
+        return React.createElement('div', { className: 'gw-editor' },
+          React.createElement('div', { className: 'gw-tabs' },
+            React.createElement('button', { className: 'gw-tab' + (addTab === 'catalog' ? ' on' : ''), type: 'button',
+              onClick: () => setAddTab('catalog') }, fmt(t('addCatalog'))),
+            React.createElement('button', { className: 'gw-tab' + (addTab === 'custom' ? ' on' : ''), type: 'button',
+              onClick: () => setAddTab('custom') }, fmt(t('addCustom')))),
+          addTab === 'catalog' ? React.createElement('div', null,
+            catalogOptions.length === 0
+              ? React.createElement('div', { className: 'gw-note' }, fmt(t('catalogEmpty')))
+              : React.createElement('div', { className: 'gw-row' },
+                React.createElement('label', null, fmt(t('provider'))),
+                React.createElement('select', { value: '', onChange: e => e.target.value !== '' && setExpanded(e.target.value) },
+                  React.createElement('option', { value: '' }, fmt(t('catalogPick'))),
+                  catalogOptions.map(p => React.createElement('option', { key: p.provider, value: p.provider }, p.label)))),
+          ) : React.createElement('div', null,
+            React.createElement('div', { className: 'gw-row' },
+              React.createElement('label', null, 'Provider ID'),
+              React.createElement('input', { value: addForm.id, placeholder: 'my-provider', spellCheck: false,
+                onChange: e => setAddForm(f => ({ ...f, id: e.target.value })) })),
+            React.createElement('div', { className: 'gw-row' },
+              React.createElement('label', null, fmt(t('displayName'))),
+              React.createElement('input', { value: addForm.displayName, spellCheck: false,
+                onChange: e => setAddForm(f => ({ ...f, displayName: e.target.value })) })),
+            React.createElement('div', { className: 'gw-row' },
+              React.createElement('label', null, 'Base URL'),
+              React.createElement('input', { value: addForm.baseURL, placeholder: 'https://…/v1', spellCheck: false,
+                onChange: e => setAddForm(f => ({ ...f, baseURL: e.target.value })) })),
+            React.createElement('div', { className: 'gw-row' },
+              React.createElement('label', null, fmt(t('protocol'))),
+              React.createElement('select', { value: addForm.protocol,
+                onChange: e => setAddForm(f => ({ ...f, protocol: e.target.value })) },
+                ['openai-completions', 'openai-responses', 'anthropic-messages'].map(v => React.createElement('option', { key: v, value: v }, v)))),
+            React.createElement('div', { className: 'gw-row' },
+              React.createElement('label', null, fmt(t('apiKey'))),
+              React.createElement('input', { type: 'password', autoComplete: 'new-password', value: addForm.apiKey,
+                placeholder: fmt(t('apiKeyHint')),
+                onChange: e => setAddForm(f => ({ ...f, apiKey: e.target.value })) }),
+              React.createElement('button', { className: 'gw-btn', type: 'button', disabled: busy, onClick: discoverDraft }, fmt(t('fetchModels')))),
+            !addForm.candidates ? React.createElement('div', { className: 'gw-models-box' },
+              React.createElement('div', { className: 'gw-mlabel' }, fmt(t('catalog'))),
+              (addForm.models ?? []).map((m, i) => React.createElement('div', { className: 'gw-mrow', key: i },
+                React.createElement('input', { value: m.id, placeholder: 'model-id', spellCheck: false,
+                  onChange: e => setAddForm(f => { const n = (f.models ?? []).slice(); n[i] = { ...m, id: e.target.value }; return { ...f, models: n } }) }),
+                React.createElement('input', { value: m.name ?? '', placeholder: fmt(t('modelName')), spellCheck: false,
+                  onChange: e => setAddForm(f => { const n = (f.models ?? []).slice(); n[i] = { ...m, name: e.target.value }; return { ...f, models: n } }) }),
+                React.createElement('input', { className: 'gw-num', value: m.contextWindow ?? '', placeholder: 'context',
+                  onChange: e => setAddForm(f => { const n = (f.models ?? []).slice(); n[i] = { ...m, contextWindow: e.target.value }; return { ...f, models: n } }) }),
+                React.createElement('button', { className: 'gw-x', type: 'button', title: fmt(t('removeModel')),
+                  onClick: () => setAddForm(f => ({ ...f, models: (f.models ?? []).filter((_, j) => j !== i) })) }, '✕'))),
+              React.createElement('button', { className: 'gw-btn', type: 'button',
+                onClick: () => setAddForm(f => ({ ...f, models: [...(f.models ?? []), { id: '', name: '', contextWindow: '' }] })) },
+                '+ ' + fmt(t('addModel')))) : null,
+            addForm.candidates ? React.createElement('div', { className: 'gw-models-box' },
+              addForm.candidates.map(m => React.createElement('label', { className: 'gw-cand', key: m.id },
+                React.createElement('input', { type: 'checkbox', checked: addForm.picked[m.id] === true,
+                  onChange: e => setAddForm(f => ({ ...f, picked: { ...f.picked, [m.id]: e.target.checked } })) }),
+                React.createElement('span', null, m.id + (m.label !== m.id ? ' — ' + m.label : '')))))
+              : null,
+            React.createElement('div', { className: 'gw-row' },
+              React.createElement('button', { className: 'gw-btn pri', type: 'button', disabled: busy || addForm.id.trim() === '' || addForm.baseURL.trim() === '',
+                onClick: createCustom }, fmt(t('create'))))),
+        )
+      }
+
       return React.createElement('div', { className: 'gw-panel' },
         React.createElement('style', null, CSS),
         msg && React.createElement('div', { className: 'gw-msg ' + msg.kind }, fmt(msg.text)),
-        React.createElement('div', { className: 'gw-card' },
-          React.createElement('h3', null, fmt(t('modelTitle'))),
-          React.createElement('div', { className: 'gw-row' },
-            React.createElement('label', null, fmt(t('provider'))),
-            React.createElement('select', {
-              value: provider,
-              disabled: options.length === 0,
-              onChange: e => { setCfg({ ...cfg, provider: e.target.value }); setModels(null) },
-            }, options.length === 0
-              ? React.createElement('option', { value: '' }, '—')
-              : options.map(o => React.createElement('option', { key: o.provider, value: o.provider },
-                (o.label ?? o.provider) + (o.active ? '' : ' (not registered)'))))),
-          React.createElement('div', { className: 'gw-row' },
-            React.createElement('label', null, fmt(t('apiKey'))),
-            React.createElement('input', {
-              type: 'password', autoComplete: 'new-password', value: apiKey,
-              placeholder: cfg?.keyConfigured ? fmt(t('apiKeySet', { ref: cfg.keyRef ?? '' })) : fmt(t('apiKeyHint')),
-              onChange: e => setApiKey(e.target.value),
-            })),
-          React.createElement('div', { className: 'gw-row' },
-            React.createElement('label', null, fmt(t('model'))),
-            React.createElement('input', {
-              value: model, placeholder: 'deepseek-flash', spellCheck: false,
-              onChange: e => setModel(e.target.value),
-            }),
-            React.createElement('button', { className: 'gw-btn', type: 'button', onClick: fetchModels, disabled: busy }, fmt(t('fetchModels')))),
-          models && React.createElement('select', {
-            className: 'gw-models', value: model,
-            onChange: e => setModel(e.target.value),
-          }, models.map(m => React.createElement('option', { key: m.id, value: m.id },
-            m.label && m.label !== m.id ? m.id + ' — ' + m.label : m.id))),
-          React.createElement('div', { className: 'gw-row' },
-            React.createElement('button', { className: 'gw-btn pri', type: 'button', onClick: save, disabled: busy || !cfg }, fmt(t('save'))))),
+        data.providers.map(p => React.createElement('div', { className: 'gw-prov', key: p.provider },
+          React.createElement('button', { className: 'gw-prow', type: 'button',
+            onClick: () => setExpanded(expanded === p.provider ? null : p.provider) },
+            React.createElement('span', { className: 'gw-chev' }, expanded === p.provider ? '▾' : '▸'),
+            React.createElement('span', { className: 'gw-pname' }, p.label),
+            p.profile?.baseURL ? React.createElement('span', { className: 'gw-psub' }, p.profile.baseURL) : null,
+            isDefault(p) ? React.createElement('span', { className: 'gw-tag' }, fmt(t('defaultTag'))) : null,
+            !p.keyConfigured && p.configurable ? React.createElement('span', { className: 'gw-tag warn' }, fmt(t('noKeyTag'))) : null,
+            p.custom ? React.createElement('span', { className: 'gw-tag' }, fmt(t('customTag'))) : null),
+          expanded === p.provider ? editorCard(p) : null)),
+        React.createElement('div', { className: 'gw-prov' },
+          React.createElement('button', { className: 'gw-prow add', type: 'button',
+            onClick: () => setExpanded(expanded === 'add' ? null : 'add') },
+            React.createElement('span', { className: 'gw-chev' }, expanded === 'add' ? '▾' : '▸'),
+            React.createElement('span', { className: 'gw-pname' }, fmt(t('addProvider')))),
+          expanded === 'add' ? addCard() : null),
       )
     }
 
@@ -207,7 +375,12 @@
       fetchModels: '获取模型', save: '保存并注入', openAdmin: '打开管理控制台', restart: '重启 dsh',
       restartConfirm: '重启你自己的 dsh 进程？几秒钟后自动恢复，未保存的对话草稿可能丢失。',
       restartFail: '重启失败：{err}', signOut: '退出登录', saved: '已保存并注入：{changed}',
-      fetching: '正在获取…', fetchNone: 'dsh 没有报出模型，请手工填写模型 id。',
+      fetching: '正在获取…', fetchNone: '没有发现模型，请检查端点与密钥，或手工填写模型 id。',
+      loading: '加载中…', displayName: '显示名称', catalog: '模型目录', modelName: '显示名', addModel: '添加模型', removeModel: '移除',
+      save: '保存', remove: '删除提供商', removeConfirm: '删除提供商「{name}」？其配置将从 dsh 中移除。',
+      accountNote: '此提供商使用 dsh 账号登录，无需 API Key。', defaultTag: '默认', noKeyTag: '未配置密钥', customTag: '自定义',
+      addProvider: '添加模型提供商', addCatalog: '第三方模型提供商', addCustom: '自定义模型 API',
+      catalogPick: '选择提供商…', catalogEmpty: '目录中的第三方提供商都已配置。', protocol: '协议', create: '创建提供商',
       loadFail: '无法连接网关：{err}', pickModel: 'dsh 报出 {n} 个模型，选一个即可。',
     }
     const EN = {
@@ -216,7 +389,12 @@
       fetchModels: 'Fetch models', save: 'Save and inject', openAdmin: 'Open admin console', restart: 'Restart dsh',
       restartConfirm: 'Restart your own dsh process? It recovers in seconds; unsaved drafts may be lost.',
       restartFail: 'Restart failed: {err}', signOut: 'Sign out', saved: 'Saved and injected: {changed}',
-      fetching: 'Fetching…', fetchNone: 'dsh listed no models; type the model id manually.',
+      fetching: 'Fetching…', fetchNone: 'No models discovered; check the endpoint and key, or type model ids manually.',
+      loading: 'Loading…', displayName: 'Display name', catalog: 'Model catalogue', modelName: 'Label', addModel: 'Add model', removeModel: 'Remove',
+      save: 'Save', remove: 'Remove provider', removeConfirm: 'Remove provider "{name}"? Its configuration is deleted from dsh.',
+      accountNote: 'This provider signs in with your dsh account; no API key needed.', defaultTag: 'Default', noKeyTag: 'No key', customTag: 'Custom',
+      addProvider: 'Add model provider', addCatalog: 'Catalogue provider', addCustom: 'Custom model API',
+      catalogPick: 'Pick a provider…', catalogEmpty: 'Every catalogue provider is configured.', protocol: 'Protocol', create: 'Create provider',
       loadFail: 'Cannot reach the gateway: {err}', pickModel: '{n} models listed; pick one.',
     }
 
