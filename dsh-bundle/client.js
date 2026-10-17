@@ -183,7 +183,11 @@
 
       if (!data) return React.createElement('div', { className: 'gw-panel' }, React.createElement('style', null, CSS), fmt(t('loading')))
       const isDefault = p => data.defaultModel.provider === p.provider
-      const catalogOptions = data.providers.filter(p => p.configurable && p.profile === null)
+      // Only rows with something configured stay on the page: the account
+      // route, keyed routes and custom profiles. Everything else is offered by
+      // the add-provider card instead of cluttering the list.
+      const visible = data.providers.filter(p => !p.configurable || p.keyConfigured || p.profile !== null)
+      const catalogOptions = data.providers.filter(p => p.configurable && p.profile === null && !p.keyConfigured)
 
       function editorModels(p) {
         const d = draftOf(p.provider)
@@ -298,7 +302,7 @@
       return React.createElement('div', { className: 'gw-panel' },
         React.createElement('style', null, CSS),
         msg && React.createElement('div', { className: 'gw-msg ' + msg.kind }, fmt(msg.text)),
-        data.providers.map(p => React.createElement('div', { className: 'gw-prov', key: p.provider },
+        visible.map(p => React.createElement('div', { className: 'gw-prov', key: p.provider },
           React.createElement('button', { className: 'gw-prow', type: 'button',
             onClick: () => setExpanded(expanded === p.provider ? null : p.provider) },
             React.createElement('span', { className: 'gw-chev' }, expanded === p.provider ? '▾' : '▸'),
