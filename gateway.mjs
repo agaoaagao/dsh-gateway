@@ -70,6 +70,8 @@ Per-user dsh (--spawn)
 
 Other
   --public-asset <path>    extra unauthenticated path to relay (repeatable)
+  --tcms <url>             companion tcms backend origin; enables the /tcms/*
+                           relay with gateway identity headers and plugin gating
   --help                   show this text
 
 The gateway enumerates this machine's own addresses and passes them to every dsh
@@ -229,6 +231,7 @@ async function main() {
     stateFile,
     publicAssets: collect(argv, '--public-asset'),
     admin: adminHandler,
+    tcms: value(argv, '--tcms') === undefined ? undefined : new URL(value(argv, '--tcms')),
     log,
   })
   holder.gateway = gateway
