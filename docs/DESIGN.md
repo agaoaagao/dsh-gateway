@@ -112,7 +112,37 @@ the route, so different route shapes land where they resolve from. The
 remote call dsh's page would make, falling back to the catalogue dsh already
 holds for the route.
 
-## 7. What is deliberately out of scope
+## 7. The shared dsh home is a per-account grant
+
+dsh's session list *is* its session store: `JsonlSessionPersistence.list()` walks
+every project directory under `$DSH_HOME/sessions` and the Web GUI shows all of
+them, whatever workspace the page was opened from. That is exactly why
+unisolated accounts listed the same 43 sessions — and it is also the feature an
+administrator may deliberately grant: run one account's dsh on the shared dsh
+home (`--shared-home`, default `$DSH_HOME`, else `~/.dsh`) and that account lists
+the operator's sessions. The grant is a boolean on the account record, surfaced in
+the admin console, and re-read from the store on every request.
+
+Two consequences are load-bearing:
+
+- **The grant stops the account's running dsh.** A dsh process fixes `DSH_HOME`
+  when it spawns, so a running instance cannot switch homes. The admin API stops
+  that account's instance, and the next request starts a new one on the new home.
+  The sign-in is deliberately *not* revoked — the account stays signed in, only
+  its home changed.
+- **A shared instance must not inherit the private workspace pin.** The gateway
+  normally pins `workspace-controller.documentsDirectory` to `<home>/workspace`
+  so each account's default workspace stays inside its own home. For a granted
+  account that would open a gateway-only folder the operator's dsh never uses and
+  hide the very sessions the grant is about, so the shared overlay pins only the
+  loopback port and leaves the workspace at dsh's default. The overlay is written
+  under the gateway state directory (`instance-patches/<account>.yml`), because
+  the shared home is not the gateway's to write into.
+
+Everything else is unchanged: every other account keeps a private home, and the
+grant is per account, so granting one never widens another's visibility.
+
+## 8. What is deliberately out of scope
 
 - **TLS.** This is built for a trusted LAN. Terminate TLS in a reverse proxy
   if it is exposed further.

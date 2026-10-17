@@ -16,6 +16,8 @@
  *   - the last administrator cannot be deleted
  *   - an idle instance is reaped, and `--idle-minutes 0` never reaps
  *   - each instance's default workspace is pinned inside that account's home
+ *   - an account granted the shared dsh home runs on it and leaves the operator's
+ *     default workspace alone; revoking the grant moves it back to a private home
  *
  * Run: node test-spawn.mjs
  */
@@ -105,6 +107,35 @@ function request({ method = 'GET', path, jar, body, headers = {}, host, port = P
   })
 }
 
+/** Open a transport upgrade through the gateway, like the Web GUI's live stream. */
+function upgrade({ path = '/live', jar, port = PORT }) {
+  const jarHeader = jar === undefined ? '' : jar.header()
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({
+      hostname: '127.0.0.1',
+      port,
+      path,
+      headers: {
+        connection: 'Upgrade',
+        upgrade: 'websocket',
+        'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==',
+        'sec-websocket-version': '13',
+        ...(jarHeader === '' ? {} : { cookie: jarHeader }),
+      },
+    })
+    req.on('upgrade', (res, socket) => {
+      socket.destroy()
+      resolve({ status: res.statusCode ?? 0, headers: res.headers })
+    })
+    req.on('response', (res) => {
+      res.resume()
+      resolve({ status: res.statusCode ?? 0, headers: res.headers })
+    })
+    req.on('error', reject)
+    req.end()
+  })
+}
+
 /** Sign in, returning the jar. */
 async function login(name, password) {
   const jar = new Jar()
@@ -161,6 +192,7 @@ function startGateway(stateFile, homeRoot, template, extraArgs = [], overrides =
     '--state', stateFile,
     '--home-root', homeRoot,
     '--template', template,
+    '--shared-home', overrides.sharedHome ?? join(dirname(stateFile), 'shared-home'),
     '--dsh-bin', process.execPath,
     '--dsh-arg', FAKE_DSH,
     '--max-instances', '3',
@@ -425,6 +457,85 @@ async function main() {
   check('the next request starts a fresh dsh process',
     aliceAfterRestart.pid !== aliceBefore.pid,
     `${String(aliceBefore.pid)} -> ${String(aliceAfterRestart.pid)}`)
+
+  // An administrator may grant one account the deployment's shared dsh home. dsh
+  // lists every session in its own store, so this grant is exactly "this account
+  // sees the operator's sessions". It is per account and revocable, and it must
+  // not drag the other accounts along with it.
+  process.stdout.write('\n== 8g. an account can be granted the shared dsh home ==\n')
+  const sharedHomePath = join(root, 'shared-home')
+  const stateBeforeGrant = JSON.parse((await admin(adminLogin.jar, 'GET', '/state')).body)
+  check('the admin state names the shared home',
+    stateBeforeGrant.sharedHome === sharedHomePath, String(stateBeforeGrant.sharedHome))
+  const grantedMade = await admin(adminLogin.jar, 'POST', '/users', {
+    name: 'shared', password: 'shared-password', sharedHome: true,
+  })
+  check('an account can be created with the grant',
+    grantedMade.status === 201, `${String(grantedMade.status)} ${grantedMade.body}`)
+  const sharedLogin = await login('shared', 'shared-password')
+  check('the granted account signs in', sharedLogin.status === 303, `status ${String(sharedLogin.status)}`)
+  const sharedWho = JSON.parse((await request({ path: '/whoami', jar: sharedLogin.jar })).body)
+  check('the granted account reaches dsh on the shared home',
+    sharedWho.home === sharedHomePath, String(sharedWho.home))
+  check('the shared home is created for the grant', existsSync(sharedHomePath), sharedHomePath)
+  check('a granted account gets no private home',
+    !existsSync(join(homeRoot, 'shared')), join(homeRoot, 'shared'))
+  check('the grant is stored on the account',
+    JSON.parse(readFileSync(join(root, 'accounts.json'), 'utf8')).users.shared.sharedHome === true)
+  const sharedOverlay = join(root, 'instance-patches', 'shared.yml')
+  check('the shared overlay is written outside the shared home',
+    existsSync(sharedOverlay), sharedOverlay)
+  const sharedOverlayText = existsSync(sharedOverlay) ? readFileSync(sharedOverlay, 'utf8') : ''
+  check('the shared instance stays on loopback port 0',
+    /host: '127\.0\.0\.1'/u.test(sharedOverlayText) && /port: 0/u.test(sharedOverlayText),
+    sharedOverlayText)
+  check('the shared instance keeps dsh\'s default workspace',
+    !sharedOverlayText.includes('documentsDirectory'), sharedOverlayText)
+  const stateWithGrant = JSON.parse((await admin(adminLogin.jar, 'GET', '/state')).body)
+  const sharedRow = stateWithGrant.instances.find(i => i.user === 'shared')
+  check('the process table marks the grant',
+    sharedRow !== undefined && sharedRow.shared === true, JSON.stringify(stateWithGrant.instances))
+  check('another account is still on its private home',
+    JSON.parse((await request({ path: '/whoami', jar: aliceFresh.jar })).body).home === join(homeRoot, 'alice'))
+
+  // A home change or a restart retires the credential the browser holds. Both
+  // the REST relay and the live stream must reconnect on their own: a page
+  // stuck on "reconnecting" while REST calls succeed is exactly the bug this
+  // guards against.
+  const staleJar = new Jar()
+  for (const [cookieName, value] of sharedLogin.jar.cookies) staleJar.cookies.set(cookieName, value)
+  const liveBefore = await upgrade({ jar: staleJar })
+  check('the granted account\'s live stream connects', liveBefore.status === 101,
+    `status ${String(liveBefore.status)}`)
+  const stopped = await admin(adminLogin.jar, 'POST', '/instances/shared/stop')
+  check('the administrator can stop that instance', stopped.status === 200,
+    `${String(stopped.status)} ${stopped.body}`)
+  const liveHealed = await upgrade({ jar: staleJar })
+  check('a retired credential heals on the live stream, not a permanent 401',
+    liveHealed.status === 101, `status ${String(liveHealed.status)}`)
+  const liveHealedRelay = (liveHealed.headers['set-cookie'] ?? [])
+    .find(cookie => cookie.startsWith('__dsh_relay='))
+  check('the live stream hands back a refreshed relay handle',
+    typeof liveHealedRelay === 'string' && liveHealedRelay.length > '__dsh_relay='.length,
+    String(liveHealedRelay))
+  const healed = await request({ path: '/whoami', jar: staleJar })
+  const healedRelay = (healed.headers['set-cookie'] ?? [])
+    .find(cookie => cookie.startsWith('__dsh_relay='))
+  check('a retired credential heals on the REST path too',
+    healed.status === 200 && typeof healedRelay === 'string',
+    `status ${String(healed.status)} cookies ${JSON.stringify(healed.headers['set-cookie'] ?? [])}`)
+
+  const revoked = await admin(adminLogin.jar, 'POST', '/users/shared/shared-home', { sharedHome: false })
+  check('the administrator can revoke the grant',
+    revoked.status === 200 && JSON.parse(revoked.body).sharedHome === false,
+    `${String(revoked.status)} ${revoked.body}`)
+  check('revoking the grant is stored on the account',
+    JSON.parse(readFileSync(join(root, 'accounts.json'), 'utf8')).users.shared.sharedHome === false)
+  const sharedBack = JSON.parse((await request({ path: '/whoami', jar: sharedLogin.jar })).body)
+  check('a revoked account moves back to its own home',
+    sharedBack.home === join(homeRoot, 'shared'), String(sharedBack.home))
+  check('the revoked account\'s dsh was restarted for the new home',
+    sharedBack.pid !== sharedWho.pid, `${String(sharedWho.pid)} -> ${String(sharedBack.pid)}`)
 
   process.stdout.write('\n== 9. account security: hashed storage, restart, lockout ==\n')
   const accountsFile = join(root, 'accounts.json')

@@ -26,7 +26,7 @@
 import { dirname, join, resolve } from 'node:path'
 
 import { AccountStore, LoginThrottle } from './lib/accounts.mjs'
-import { checkTemplate, userHomePath } from './lib/homes.mjs'
+import { checkTemplate, resolveSharedHome, userHomePath } from './lib/homes.mjs'
 import { DshPool } from './lib/pool.mjs'
 import { createAdmin } from './lib/admin.mjs'
 import { createGateway } from './lib/server.mjs'
@@ -56,6 +56,9 @@ Per-user dsh (--spawn)
   --profile <name>         dsh profile to boot                     (default web)
   --home-root <dir>        where per-user DSH_HOME dirs live
                                                (default <state dir>/users)
+  --shared-home <dir>      dsh home an account may be granted, so that account
+                           lists this home's sessions
+                                               (default $DSH_HOME, else ~/.dsh)
   --template <dir>         optional DSH_HOME to seed each user's home from;
                            omit it and every account starts from the profile
                            dsh ships, with none of the operator's plugins
@@ -156,6 +159,11 @@ async function main() {
 
   if (spawnMode) {
     const homeRoot = resolve(value(argv, '--home-root') ?? join(dirname(stateFile), 'users'))
+    // The home an administrator may grant to an account. It is the operator's own
+    // dsh home by default, so a grant shows the sessions that home already holds;
+    // it is resolved but never created here, since only a grant needs it.
+    const sharedHome = resolveSharedHome(value(argv, '--shared-home'))
+    const patchRoot = join(dirname(stateFile), 'instance-patches')
     // No template by default. dsh materialises its own shipped profile the first
     // time an account starts, so a brand-new account cannot inherit the
     // operator's plugins, credentials or saved settings — which is the whole
@@ -177,6 +185,8 @@ async function main() {
       prefix: collect(argv, '--dsh-arg'),
       profile,
       homeRoot,
+      sharedHome,
+      patchRoot,
       template,
       trustedHosts,
       maxInstances: integer(argv, '--max-instances', 8),
@@ -186,6 +196,7 @@ async function main() {
 
     log.log('mode: one dsh process per user')
     log.log(`per-user home: ${userHomePath(homeRoot, '<user>')}`)
+    log.log(`shared home: ${sharedHome} (grant it per account in the admin console)`)
     log.log(`profile template: ${template ?? `(none; each account gets dsh's shipped profile)`}`)
     log.log(`trusted hosts: ${trustedHosts.join(', ')}`)
   } else {

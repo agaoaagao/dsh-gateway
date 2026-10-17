@@ -199,6 +199,22 @@ const control = createServer((req, res) => {
   res.end('ok')
 })
 
+// The live stream: the fake upstream only completes a transport upgrade with a
+// current credential and refuses a retired one with 401, exactly as dsh does.
+upstream.on('upgrade', (req, socket) => {
+  const host = req.headers.host ?? ''
+  const presented = String(req.headers.cookie ?? '').split('; ')
+  const expected = `${authName(host)}=gen${String(generation)}`
+  if (!presented.includes(expected)) {
+    socket.end('HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n')
+    return
+  }
+  socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n')
+  socket.on('end', () => socket.destroy())
+  socket.on('error', () => socket.destroy())
+  socket.resume()
+})
+
 const listen = (server, port) => new Promise((resolve, reject) => {
   server.once('error', reject)
   server.listen(port, '127.0.0.1', resolve)
@@ -258,6 +274,38 @@ function absorb(jar, res) {
 
 /** Serialise a cookie jar into a Cookie header. */
 const jarHeader = jar => Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ')
+
+/** Open a transport upgrade through the gateway. @returns status, headers. */
+function upgradeCall({ port, path = '/live', jar }) {
+  const cookies = jar === undefined || Object.keys(jar).length === 0
+    ? {}
+    : { cookie: jarHeader(jar) }
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({
+      host: '127.0.0.1',
+      port,
+      path,
+      headers: {
+        host: `127.0.0.1:${String(port)}`,
+        connection: 'Upgrade',
+        upgrade: 'websocket',
+        'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==',
+        'sec-websocket-version': '13',
+        ...cookies,
+      },
+    })
+    req.on('upgrade', (res, socket) => {
+      socket.destroy()
+      resolve({ status: res.statusCode ?? 0, headers: res.headers })
+    })
+    req.on('response', (res) => {
+      res.resume()
+      resolve({ status: res.statusCode ?? 0, headers: res.headers })
+    })
+    req.on('error', reject)
+    req.end()
+  })
+}
 
 /** Start the gateway and resolve once it reports it is listening. */
 function startGateway(extraArgs, label) {
@@ -344,6 +392,29 @@ async function main() {
     staleGet.status === 200 && staleGet.body === 'OK:gen2', `${String(staleGet.status)} ${staleGet.body}`)
   check('recovery is logged as a re-mint',
     gateway.log.includes('re-minted and retried'), gateway.log.trim().split('\n').slice(-2).join(' | '))
+  // The REST path heals the upstream credential, but the browser must also
+  // receive the new handle: otherwise its next WebSocket reconnect keeps
+  // presenting the retired cookie and the page stays stuck on "reconnecting".
+  const healedRelay = (staleGet.headers['set-cookie'] ?? [])
+    .find(cookie => cookie.startsWith('__dsh_relay='))
+  const healedPair = typeof healedRelay === 'string'
+    ? Buffer.from(healedRelay.split(';')[0].slice('__dsh_relay='.length), 'base64url').toString('utf8')
+    : ''
+  check('the recovery hands the browser a refreshed relay handle',
+    healedPair.endsWith(`=gen${String(generation)}`), `${String(healedRelay)} -> ${healedPair}`)
+  absorb(jar, staleGet)
+
+  console.log('\n== 3b. the live stream heals a stale credential itself ==')
+  const bumpedStream = await call({ port: CONTROL_PORT, path: '/stale' })
+  console.log(`  (control: ${bumpedStream.body})`)
+  const liveStream = await upgradeCall({ port: GATEWAY_PORT, jar })
+  check('a retired credential does not strand the live stream',
+    liveStream.status === 101, `status ${String(liveStream.status)}`)
+  const streamRelay = (liveStream.headers['set-cookie'] ?? [])
+    .find(cookie => cookie.startsWith('__dsh_relay='))
+  check('the live stream also refreshes the browser handle',
+    typeof streamRelay === 'string' && streamRelay.length > '__dsh_relay='.length, String(streamRelay))
+  absorb(jar, liveStream)
 
   console.log('\n== 4. the recovery also covers a POST body (replayed, not lost) ==')
   const bumped2 = await call({ port: CONTROL_PORT, path: '/stale' })
@@ -437,6 +508,27 @@ async function main() {
   })
   check('the console check leaves no test account behind',
     removedViewer.status === 200, `${String(removedViewer.status)} ${removedViewer.body}`)
+  // This gateway relays to one already-running dsh, so it has no shared home to
+  // grant. The console must say so rather than accept a grant that can never apply.
+  const refusedGrant = await call({
+    port: GATEWAY_PORT,
+    method: 'POST',
+    path: '/__gateway/admin/api/users',
+    jar: shellJar,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'shared-tester', password: 'shared12345', sharedHome: true }),
+  })
+  check('a grant is refused when the gateway has no shared home',
+    refusedGrant.status === 400 && refusedGrant.body.includes('no shared dsh home'),
+    `${String(refusedGrant.status)} ${refusedGrant.body}`)
+  const stateNoShared = JSON.parse((await call({
+    port: GATEWAY_PORT,
+    path: '/__gateway/admin/api/state',
+    jar: shellJar,
+  })).body)
+  check('the refused grant created no account',
+    !stateNoShared.users.some(u => u.name === 'shared-tester'))
+  check('the console is told there is no shared home', stateNoShared.sharedHome === null)
   check('injection rewrites content-length rather than lying about it',
     Buffer.byteLength(shell.body, 'utf8') === Number(shell.headers['content-length']),
     `${String(Buffer.byteLength(shell.body, 'utf8'))} vs ${String(shell.headers['content-length'])}`)
@@ -820,8 +912,8 @@ async function main() {
 
   await stop(configGateway)
 
-  await new Promise(resolve => upstream.close(resolve))
-  await new Promise(resolve => control.close(resolve))
+  await new Promise((resolve) => { upstream.closeAllConnections?.(); upstream.close(resolve) })
+  await new Promise((resolve) => { control.closeAllConnections?.(); control.close(resolve) })
 
   console.log(`\n${String(checks - failures)}/${String(checks)} checks passed`)
   if (failures > 0) process.exitCode = 1

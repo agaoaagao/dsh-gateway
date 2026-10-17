@@ -50,6 +50,17 @@ directory would make one user's settings the default for everyone. `sessions/`,
 **not** seeded and are created fresh inside each user's own home. That is the
 isolation.
 
+Isolation is the default, not a prison: an administrator can grant one account
+the deployment's *shared dsh home* (`--shared-home`, by default `$DSH_HOME` or
+`~/.dsh`). That account's dsh then runs on the shared home instead of its own, and
+because dsh lists every session in its home, the grant means exactly "this account
+sees the sessions the operator's own dsh sees". The shared instance also keeps
+dsh's default workspace rather than the private per-account one, so it opens where
+those sessions were recorded. Every other account keeps its own home; revoking the
+grant moves the account back to a private home on its next request (its running
+dsh is recycled, its sign-in is not). Grant deliberately — sessions in the shared
+home are readable by every account granted it.
+
 ## Quick start
 
 ### Docker
@@ -184,9 +195,11 @@ non-administrator never sees it, because the route would only bounce them back t
 the sign-in page.
 
 From there an administrator can add, delete, enable, disable and re-password
-accounts, and see every running dsh with its port, uptime, memory and request
-count. Disabling or deleting an account stops its dsh immediately and revokes its
-sessions, so the effect is instant rather than "when the cookie expires".
+accounts, grant or revoke the shared dsh home per account, and see every running
+dsh with its port, uptime, memory and request count. Disabling or deleting an
+account stops its dsh immediately and revokes its sessions, so the effect is
+instant rather than "when the cookie expires". Changing an account's shared-home
+grant stops that account's dsh so the next request starts on the new home.
 
 The last remaining administrator cannot be deleted. Repeated failed sign-ins are
 throttled per client address and per user name.
@@ -207,6 +220,7 @@ throttled per client address and per user name.
 | `--profile <name>` | `web` | dsh profile to boot |
 | `--template <dir>` | none | optional DSH_HOME seeding each new account; omit it and dsh ships the profile (see *Every account starts clean*) |
 | `--home-root <dir>` | next to `--state` | where per-user homes live |
+| `--shared-home <dir>` | `$DSH_HOME`, else `~/.dsh` | dsh home an account may be granted, so it sees that home's sessions |
 | `--dsh-bin <path>` | `dsh` | executable to spawn |
 | `--dsh-arg <arg>` | — | argument before dsh's own flags (repeatable) |
 | `--max-instances <n>` | `8` | hard cap on concurrent dsh processes |
@@ -236,6 +250,8 @@ hides it.
 
 One volume holds everything stateful: `/srv/dsh` (the shared profile template),
 `/srv/users/<account>` (private homes) and `/srv/gateway` (sessions and accounts).
+The image sets `DSH_HOME=/srv/dsh`, so the shared dsh home an account can be
+granted is that same `/srv/dsh` without extra flags.
 
 Anything after the image name is passed straight to the gateway, so no flag is
 out of reach:

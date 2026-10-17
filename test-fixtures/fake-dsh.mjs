@@ -67,9 +67,11 @@ const server = createServer((req, res) => {
     .find(part => part.startsWith('dsh-auth-'))
 
   // The launch-token exchange. `ctx.connection` accepts the token only here.
+  // The cookie carries this process's token, so a restart retires it exactly as
+  // a restarted dsh retires the credential a browser was holding.
   if (url.pathname === '/' && url.searchParams.get('token') === token) {
     res.writeHead(303, {
-      'set-cookie': `${required}=gen1; Path=/; HttpOnly; SameSite=Strict`,
+      'set-cookie': `${required}=${token}; Path=/; HttpOnly; SameSite=Strict`,
       location: '/',
     })
     res.end()
@@ -84,7 +86,7 @@ const server = createServer((req, res) => {
     return
   }
 
-  if (presented === undefined || !presented.startsWith(`${required}=`)) {
+  if (presented === undefined || !presented.startsWith(`${required}=${token}`)) {
     res.writeHead(401, { 'content-type': 'application/json' })
     res.end('{"error":"unauthorized"}')
     return
@@ -105,6 +107,25 @@ const server = createServer((req, res) => {
 
   res.writeHead(404, { 'content-type': 'text/plain' })
   res.end('not found')
+})
+
+// The live stream: dsh accepts a transport upgrade only with a current
+// credential, and answers 401 otherwise.
+server.on('upgrade', (req, socket) => {
+  const authority = req.headers.host
+  const required = cookieNameFor(authority)
+  const presented = String(req.headers.cookie ?? '')
+    .split(';')
+    .map(part => part.trim())
+    .find(part => part.startsWith('dsh-auth-'))
+  if (!isTrusted(authority) || presented === undefined || !presented.startsWith(`${required}=${token}`)) {
+    socket.end('HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n')
+    return
+  }
+  socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n')
+  socket.on('end', () => socket.destroy())
+  socket.on('error', () => socket.destroy())
+  socket.resume()
 })
 
 server.listen(0, '127.0.0.1', () => {
