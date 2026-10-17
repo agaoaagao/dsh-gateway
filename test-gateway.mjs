@@ -15,9 +15,10 @@ import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
+import { fileURLToPath } from 'node:url'
 
-const GATEWAY = new URL('./gateway.mjs', import.meta.url).pathname.replace(/^\//, '')
-const STATE = new URL('./test-state.json', import.meta.url).pathname.replace(/^\//, '')
+const GATEWAY = fileURLToPath(new URL('./gateway.mjs', import.meta.url))
+const STATE = fileURLToPath(new URL('./test-state.json', import.meta.url))
 
 const UPSTREAM_PORT = 3099
 const CONTROL_PORT = 3098
